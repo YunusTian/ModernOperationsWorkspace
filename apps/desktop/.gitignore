@@ -1,0 +1,12 @@
+# Build artifacts
+build/
+frontend/dist/
+frontend/node_modules/
+
+# Wails-generated (regenerated on `wails dev`)
+frontend/src/wailsjs/
+
+# IDE
+.idea/
+.vscode/
+*.log
