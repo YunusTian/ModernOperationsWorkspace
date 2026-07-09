@@ -217,6 +217,9 @@ func checkPermission(ctx context.Context, confirm Confirmer, inv *Invocation) er
 // -----------------------------------------------------------------------------
 
 // AuditRecord 是一次调用的审计快照。
+//
+// Params 已按 CommandSpec.InputSchema 中标记为 `x-mow-sensitive: true`
+// 的字段做过脱敏，可直接落盘 / 日志；原始参数不会出现在这里。
 type AuditRecord struct {
 	AuditID    string
 	PluginID   string
@@ -224,6 +227,7 @@ type AuditRecord struct {
 	Permission sdk.Permission
 	Caller     sdk.Caller
 	Params     json.RawMessage
+	Metadata   map[string]any
 	Confirmed  bool
 	Streaming  bool
 	StartedAt  time.Time
@@ -275,13 +279,19 @@ func AuditMiddleware(sink AuditSink) Middleware {
 }
 
 func newAuditRecord(inv *Invocation) *AuditRecord {
+	// 预初始化 Metadata，使得 audit record 与后续中间件共享同一 map，
+	// 后续任何 SetMetadata 写入都能被 Finish 时 sink 读到。
+	if inv.Request.Metadata == nil {
+		inv.Request.Metadata = make(map[string]any)
+	}
 	return &AuditRecord{
 		AuditID:    inv.AuditID,
 		PluginID:   inv.Request.PluginID,
 		CommandID:  inv.Request.CommandID,
 		Permission: inv.Spec.Permission,
 		Caller:     inv.Request.Caller,
-		Params:     inv.Request.Params,
+		Params:     RedactParams(inv.Spec.InputSchema, inv.Request.Params),
+		Metadata:   inv.Request.Metadata,
 		Confirmed:  inv.Request.Confirmed || inv.Confirmed,
 		StartedAt:  time.Now(),
 	}

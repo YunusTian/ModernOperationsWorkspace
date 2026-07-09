@@ -42,6 +42,30 @@ type Request struct {
 	// AuditID：若调用方希望复用上游的 auditId（例如 Workflow / Recipe 内部），可传入。
 	// 若为空，Engine 会自动生成。
 	AuditID string
+
+	// Metadata 是中间件间共享的上下文（限流键、trace_id、来源标签等）。
+	// 约定：
+	//   - key 采用 "命名空间.键" 形式（如 "trace.id" / "ratelimit.key"），避免撞车
+	//   - value 只放可 JSON 序列化的原语类型（string / number / bool / []any / map[string]any），
+	//     便于将来审计原样落盘
+	//   - Engine 不做深拷贝：中间件写入应基于"读旧写新"或使用互斥自持保护
+	Metadata map[string]any
+}
+
+// GetMetadata 读取 Metadata 中的一个值；不存在或类型不匹配时返回零值。
+func (r *Request) GetMetadata(key string) any {
+	if r.Metadata == nil {
+		return nil
+	}
+	return r.Metadata[key]
+}
+
+// SetMetadata 写入 Metadata；nil map 会被延迟初始化。
+func (r *Request) SetMetadata(key string, value any) {
+	if r.Metadata == nil {
+		r.Metadata = make(map[string]any)
+	}
+	r.Metadata[key] = value
 }
 
 // Response 是 Command Engine 的返回值。

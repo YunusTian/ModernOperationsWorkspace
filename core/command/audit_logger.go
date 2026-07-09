@@ -29,7 +29,7 @@ func NewLoggerAudit(log *logger.Logger) *LoggerAudit {
 }
 
 func (a *LoggerAudit) Start(ctx context.Context, rec *AuditRecord) {
-	a.log.Info("command start",
+	fields := []any{
 		"audit_id", rec.AuditID,
 		"plugin", rec.PluginID,
 		"command", rec.CommandID,
@@ -38,7 +38,15 @@ func (a *LoggerAudit) Start(ctx context.Context, rec *AuditRecord) {
 		"streaming", rec.Streaming,
 		"confirmed", rec.Confirmed,
 		"params_size", len(rec.Params),
-	)
+	}
+	// 单独展开常用的追踪字段，方便日志聚合；其它元数据只暴露 key 计数。
+	if tid, ok := rec.Metadata["trace.id"].(string); ok && tid != "" {
+		fields = append(fields, "trace_id", tid)
+	}
+	if n := len(rec.Metadata); n > 0 {
+		fields = append(fields, "metadata_keys", n)
+	}
+	a.log.Info("command start", fields...)
 }
 
 func (a *LoggerAudit) Finish(ctx context.Context, rec *AuditRecord) {
