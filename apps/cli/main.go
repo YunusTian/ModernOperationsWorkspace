@@ -1,15 +1,18 @@
 // Command mow 是 MOW 的命令行入口。
 //
 // 目录约定：
-//   ~/.mow/                        默认 DataDir
-//   ~/.mow/config.json             CLI / 全局配置
-//   ~/.mow/connections/targets.json  已注册目标
-//   ~/.mow/keys/master.key         凭据加密主密钥
-//   <PluginsDir>/<id>[.exe]        插件可执行文件
+//
+//	~/.mow/                        默认 DataDir
+//	~/.mow/config.json             CLI / 全局配置
+//	~/.mow/connections/targets.json  已注册目标
+//	~/.mow/keys/master.key         凭据加密主密钥
+//	<PluginsDir>/<id>[.exe]        插件可执行文件
 //
 // 子命令：
-//   mow target add|list|rm         管理 Connection Target
-//   mow run <plugin>.<cmd>         通过 Command Engine 执行
+//
+//	mow target add|list|rm         管理 Connection Target
+//	mow run <plugin>.<cmd>         通过 Command Engine 执行
+//	mow recipe list|run <id>       列出 / 执行内置 Recipe
 package main
 
 import (
@@ -47,6 +50,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		newTargetCmd(appHolder),
 		newRunCmd(appHolder),
+		newRecipeCmd(appHolder),
 	)
 	return root
 }

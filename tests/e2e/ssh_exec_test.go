@@ -1,13 +1,14 @@
 // Package e2e 是 MOW 的端到端测试。
 //
 // 用例矩阵（v0.1）：
-//   TestSSHExec_EndToEnd         正常路径（stdout / stderr / exit_code 全绿）
-//   TestSSHExec_ExitCodeNonZero  远端 exit != 0 时不误报 error，透传退出码
-//   TestSSHExec_Stdin            走 params.stdin，服务端 echo 回来验证
-//   TestSSHExec_ContextCancel    短超时命中，返回 CANCELED
-//   TestSessionPool_Reuse        连续两次 exec 只做一次 TCP 握手
-//   TestSSHExec_PublicKey        ed25519 私钥鉴权，覆盖 privatekey 分支
-//   TestSSHExec_MissingCmd       缺 cmd 参数应返回 PARAM_INVALID
+//
+//	TestSSHExec_EndToEnd         正常路径（stdout / stderr / exit_code 全绿）
+//	TestSSHExec_ExitCodeNonZero  远端 exit != 0 时不误报 error，透传退出码
+//	TestSSHExec_Stdin            走 params.stdin，服务端 echo 回来验证
+//	TestSSHExec_ContextCancel    短超时命中，返回 CANCELED
+//	TestSessionPool_Reuse        连续两次 exec 只做一次 TCP 握手
+//	TestSSHExec_PublicKey        ed25519 私钥鉴权，覆盖 privatekey 分支
+//	TestSSHExec_MissingCmd       缺 cmd 参数应返回 PARAM_INVALID
 //
 // 所有用例共享 helpers_test.go 中的 rig / fakeSSHServer 装配代码。
 package e2e
@@ -15,6 +16,8 @@ package e2e
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -195,6 +198,33 @@ func TestSSHExec_PublicKey(t *testing.T) {
 	}
 }
 
+// TestSSHExec_KeyPassphrase 覆盖带口令私钥的解密分支。
+// 私钥用 passphrase 加密；插件端应能正确解密并完成鉴权。
+func TestSSHExec_KeyPassphrase(t *testing.T) {
+	const (
+		user       = "keyuser"
+		passphrase = "hunter2"
+	)
+	privatePEM, pub := generateEd25519KeyPairWithPassphrase(t, passphrase)
+	fs := startFakeSSHServer(t, echoHandler(0, nil), withPublicKey(user, pub))
+
+	r := newRig(t)
+	r.upsertEncryptedKeyTarget(t, "fake", "127.0.0.1", fs.Port, user, privatePEM, passphrase)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, _, err := r.runExec(ctx, t, "fake", map[string]any{"cmd": "id"}, 5*time.Second)
+	if err != nil {
+		t.Fatalf("engine run: %v", err)
+	}
+	if want := "echo:id\n"; out.Stdout != want {
+		t.Errorf("stdout mismatch: want %q got %q", want, out.Stdout)
+	}
+	if out.ExitCode != 0 {
+		t.Errorf("exit_code want 0, got %d", out.ExitCode)
+	}
+}
+
 // -----------------------------------------------------------------------------
 // 参数校验：缺 cmd 应返回 sdk.Error{Code:"PARAM_INVALID"}，不接触远端
 // -----------------------------------------------------------------------------
@@ -223,5 +253,45 @@ func TestSSHExec_MissingCmd(t *testing.T) {
 	// 参数校验发生在插件层，但应短路：远端不应观察到任何连接。
 	if got := fs.Conns.Load(); got != 0 {
 		t.Errorf("PARAM_INVALID should short-circuit before dial; got %d conns", got)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// known_hosts accept-new：首次连接自动追写 known_hosts；第二次走 strict 命中
+// -----------------------------------------------------------------------------
+
+func TestSSHExec_AcceptNewAppendsKnownHosts(t *testing.T) {
+	const user, password = "u", "p"
+	fs := startFakeSSHServer(t, echoHandler(0, nil), withPassword(user, password))
+
+	r := newRig(t)
+	khPath := filepath.Join(t.TempDir(), "known_hosts")
+	r.upsertAcceptNewTarget(t, "fake", "127.0.0.1", fs.Port, user, password, khPath)
+
+	// 首次：文件不存在，callback 应追写
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, _, err := r.runExec(ctx, t, "fake", map[string]any{"cmd": "hello"}, 5*time.Second); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	data, err := os.ReadFile(khPath)
+	if err != nil {
+		t.Fatalf("known_hosts should be written: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatalf("known_hosts should be non-empty after first exec")
+	}
+	firstSize := len(data)
+
+	// 第二次：文件已存在，callback 走 strict，不应再追写
+	if _, _, err := r.runExec(ctx, t, "fake", map[string]any{"cmd": "hello"}, 5*time.Second); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	data2, err := os.ReadFile(khPath)
+	if err != nil {
+		t.Fatalf("known_hosts should still exist: %v", err)
+	}
+	if len(data2) != firstSize {
+		t.Errorf("known_hosts should not grow on second run: before=%d after=%d", firstSize, len(data2))
 	}
 }

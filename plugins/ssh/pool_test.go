@@ -61,7 +61,7 @@ func TestSessionPool_ReusesClient(t *testing.T) {
 
 	dt := &dialTarget{
 		ID: "t1", Host: "127.0.0.1", Port: 22, User: "u",
-		Creds: sshCredentials{Method: "password", Password: "x"},
+		Creds: sshCredentials{Method: "password", Password: "x", KnownHostsMode: "insecure-ignore"},
 	}
 	if _, _, err := p.Acquire(context.Background(), dt); err == nil {
 		t.Fatal("stub dial should fail")
@@ -120,5 +120,18 @@ func TestBuildHostKeyCallback_Insecure(t *testing.T) {
 func TestBuildHostKeyCallback_StrictRequiresPath(t *testing.T) {
 	if _, err := buildHostKeyCallback(&sshCredentials{KnownHostsMode: "strict"}); err == nil {
 		t.Error("strict without path should fail")
+	}
+}
+
+// 缺省模式应等价于 strict：无 path 时报错。
+func TestBuildHostKeyCallback_DefaultIsStrict(t *testing.T) {
+	if _, err := buildHostKeyCallback(&sshCredentials{}); err == nil {
+		t.Error("default mode should require known_hosts_path (strict)")
+	}
+}
+
+func TestBuildHostKeyCallback_AcceptNewRequiresPath(t *testing.T) {
+	if _, err := buildHostKeyCallback(&sshCredentials{KnownHostsMode: "accept-new"}); err == nil {
+		t.Error("accept-new without path should fail")
 	}
 }

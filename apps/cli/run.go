@@ -20,8 +20,8 @@ import (
 
 type runOpts struct {
 	Target    string
-	Params    []string    // k=v，来自 --param
-	ParamsRaw string      // 完整 JSON（--params-json）
+	Params    []string // k=v，来自 --param
+	ParamsRaw string   // 完整 JSON（--params-json）
 	Timeout   time.Duration
 	Confirmed bool
 	AsJSON    bool

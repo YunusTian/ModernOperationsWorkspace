@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -33,9 +34,9 @@ type PooledClient struct {
 	Key    string
 	Client *ssh.Client
 
-	refs      int
-	lastUsed  time.Time
-	closed    bool
+	refs     int
+	lastUsed time.Time
+	closed   bool
 }
 
 // SessionPoolOptions 是 SessionPool 的构造参数。
@@ -332,12 +333,15 @@ func buildAuthMethods(c *sshCredentials) ([]ssh.AuthMethod, error) {
 func buildHostKeyCallback(c *sshCredentials) (ssh.HostKeyCallback, error) {
 	mode := c.KnownHostsMode
 	if mode == "" {
-		mode = "insecure-ignore" // v0.1 缺省，后续切换到 strict
+		mode = "strict" // 安全默认：必须命中 known_hosts
 	}
 	switch mode {
 	case "insecure-ignore":
-		return ssh.InsecureIgnoreHostKey(), nil
-	case "strict", "accept-new":
+		// 显式选择的 opt-in 模式；供受控测试环境或用户明确豁免使用。
+		// gosec 会报 G106，但这里的语义是"用户显式承担该风险"。
+		return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec // G106: opt-in insecure mode
+
+	case "strict":
 		if c.KnownHostsPath == "" {
 			return nil, errors.New("ssh: known_hosts_path required for strict mode")
 		}
@@ -346,7 +350,80 @@ func buildHostKeyCallback(c *sshCredentials) (ssh.HostKeyCallback, error) {
 			return nil, fmt.Errorf("ssh: load known_hosts: %w", err)
 		}
 		return cb, nil
+
+	case "accept-new":
+		if c.KnownHostsPath == "" {
+			return nil, errors.New("ssh: known_hosts_path required for accept-new mode")
+		}
+		return newAcceptNewCallback(c.KnownHostsPath)
+
 	default:
 		return nil, fmt.Errorf("ssh: unknown known_hosts_mode %q", mode)
 	}
+}
+
+// newAcceptNewCallback 返回一个 HostKeyCallback：
+//   - 若主机键已存在于 known_hosts，则按 strict 模式校验
+//   - 若主机键为"未知主机"，则把该条追加到 known_hosts 并放行
+//   - 若主机键与已记录键"不匹配"（可能的 MITM），则拒绝
+//
+// 语义对齐 OpenSSH 的 StrictHostKeyChecking=accept-new。
+func newAcceptNewCallback(path string) (ssh.HostKeyCallback, error) {
+	// 若文件不存在，先创建空文件，避免 knownhosts.New 失败。
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return nil, fmt.Errorf("ssh: mkdir known_hosts: %w", err)
+		}
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			return nil, fmt.Errorf("ssh: create known_hosts: %w", err)
+		}
+		_ = f.Close()
+	}
+
+	strict, err := knownhosts.New(path)
+	if err != nil {
+		return nil, fmt.Errorf("ssh: load known_hosts: %w", err)
+	}
+
+	var mu sync.Mutex
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		if err := strict(hostname, remote, key); err == nil {
+			return nil
+		} else if !isUnknownHostKey(err) {
+			return err
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return appendKnownHost(path, hostname, remote, key)
+	}, nil
+}
+
+// isUnknownHostKey 判定 knownhosts 报错是否"未知主机"而非"密钥不匹配"。
+// x/crypto/ssh/knownhosts 用 *KeyError 表示两类错误：Want 为空 → 未知主机。
+func isUnknownHostKey(err error) bool {
+	var ke *knownhosts.KeyError
+	if !errors.As(err, &ke) {
+		return false
+	}
+	return len(ke.Want) == 0
+}
+
+// appendKnownHost 把 (hostname, remote, key) 追加到 known_hosts。
+func appendKnownHost(path, hostname string, remote net.Addr, key ssh.PublicKey) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
+	if err != nil {
+		return fmt.Errorf("ssh: open known_hosts: %w", err)
+	}
+	defer f.Close()
+
+	addresses := []string{hostname}
+	if remote != nil && remote.String() != hostname {
+		addresses = append(addresses, remote.String())
+	}
+	line := knownhosts.Line(addresses, key)
+	if _, err := f.WriteString(line + "\n"); err != nil {
+		return fmt.Errorf("ssh: append known_hosts: %w", err)
+	}
+	return nil
 }

@@ -130,7 +130,9 @@ func TestManager_UpsertGetOpen(t *testing.T) {
 func TestManager_PersistRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	key := make([]byte, 32)
-	rand.Read(key)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("rand: %v", err)
+	}
 
 	m1, err := connection.NewManager(connection.Options{
 		DataDir:  dir,

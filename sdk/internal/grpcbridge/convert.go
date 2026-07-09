@@ -2,13 +2,13 @@
 //
 // 本包对外不导出（internal），任何调用都应通过 sdk.Serve / sdk 提供的公共 API。
 //
-//   Plugin (Go struct) ─┐                          ┌─ Plugin (Go interface)
-//                       │                          │
-//              server.go│                          │client.go
-//                       ▼                          ▲
-//   PluginServer  ──── gRPC (Unix / TCP) ────  PluginClient
-//                            │
-//               convert.go / stream.go
+//	Plugin (Go struct) ─┐                          ┌─ Plugin (Go interface)
+//	                    │                          │
+//	           server.go│                          │client.go
+//	                    ▼                          ▲
+//	PluginServer  ──── gRPC (Unix / TCP) ────  PluginClient
+//	                         │
+//	            convert.go / stream.go
 package grpcbridge
 
 import (
@@ -241,13 +241,6 @@ func timeToProto(t time.Time) *timestamppb.Timestamp {
 		return nil
 	}
 	return timestamppb.New(t)
-}
-
-func timeFromProto(t *timestamppb.Timestamp) time.Time {
-	if t == nil {
-		return time.Time{}
-	}
-	return t.AsTime()
 }
 
 // -----------------------------------------------------------------------------

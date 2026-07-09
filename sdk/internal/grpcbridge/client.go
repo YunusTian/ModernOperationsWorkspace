@@ -199,7 +199,7 @@ func (r *remoteCommand) ExecuteStream(ctx context.Context, s sdk.Stream) error {
 
 	// 双向泵：sdk.Stream ↔ gRPC 流
 	cs := &clientStream{ctx: ctx, s: s, stream: stream}
-	go cs.pumpUpstream()  // s.Recv() → gRPC.Send
+	go cs.pumpUpstream()       // s.Recv() → gRPC.Send
 	return cs.pumpDownstream() // gRPC.Recv → s.Stdout/Stderr/Event/Finish
 }
 

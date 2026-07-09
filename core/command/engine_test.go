@@ -25,10 +25,10 @@ type fakePlugin struct {
 func (p *fakePlugin) Metadata() sdk.Metadata {
 	return sdk.Metadata{ID: p.id, Name: p.id, Version: "0.0.1"}
 }
-func (p *fakePlugin) Init(ctx context.Context, r sdk.InitRequest) error   { return nil }
-func (p *fakePlugin) Shutdown(ctx context.Context) error                  { return nil }
-func (p *fakePlugin) HealthCheck(ctx context.Context) sdk.HealthStatus    { return sdk.StatusHealthy }
-func (p *fakePlugin) Commands() []sdk.CommandHandler                      { return p.cmds }
+func (p *fakePlugin) Init(ctx context.Context, r sdk.InitRequest) error { return nil }
+func (p *fakePlugin) Shutdown(ctx context.Context) error                { return nil }
+func (p *fakePlugin) HealthCheck(ctx context.Context) sdk.HealthStatus  { return sdk.StatusHealthy }
+func (p *fakePlugin) Commands() []sdk.CommandHandler                    { return p.cmds }
 
 type staticHandler struct {
 	id         string
@@ -47,7 +47,9 @@ func (h *staticHandler) Execute(ctx context.Context, r *sdk.ExecuteRequest) (*sd
 	}
 	return &sdk.ExecuteResponse{Data: json.RawMessage(`"` + h.dataString + `"`)}, nil
 }
-func (h *staticHandler) ExecuteStream(ctx context.Context, s sdk.Stream) error { return sdk.ErrNotSupported }
+func (h *staticHandler) ExecuteStream(ctx context.Context, s sdk.Stream) error {
+	return sdk.ErrNotSupported
+}
 
 func newEngineWith(t *testing.T, h sdk.CommandHandler, confirm command.Confirmer, sink command.AuditSink) *command.Engine {
 	t.Helper()

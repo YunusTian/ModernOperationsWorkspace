@@ -27,6 +27,7 @@ import (
 	"github.com/mow/mow/core/connection"
 	"github.com/mow/mow/core/logger"
 	"github.com/mow/mow/core/plugin"
+	"github.com/mow/mow/core/recipe"
 	"github.com/mow/mow/sdk"
 	"github.com/mow/mow/sdk/pluginclient"
 )
@@ -208,6 +209,8 @@ type rig struct {
 	Engine  *command.Engine
 	ConnMgr *connection.Manager
 	PlugMgr *plugin.Manager
+	Recipes *recipe.Registry
+	Runner  *recipe.Runner
 	Loaded  *pluginclient.LoadedPlugin
 }
 
@@ -248,7 +251,14 @@ func newRig(t *testing.T) *rig {
 		t.Fatalf("enable: %v", err)
 	}
 
-	r := &rig{Engine: engine, ConnMgr: connMgr, PlugMgr: plugMgr, Loaded: lp}
+	r := &rig{
+		Engine:  engine,
+		ConnMgr: connMgr,
+		PlugMgr: plugMgr,
+		Recipes: recipe.NewRegistry(),
+		Runner:  recipe.NewRunner(engine),
+		Loaded:  lp,
+	}
 	t.Cleanup(func() {
 		shutdownCtx, c := context.WithTimeout(context.Background(), 10*time.Second)
 		defer c()
@@ -288,6 +298,23 @@ func (r *rig) upsertKeyTarget(t *testing.T, id, host string, port int, user stri
 	}
 }
 
+// upsertAcceptNewTarget 使用 accept-new + 指定 known_hosts 文件路径注册目标。
+// 用于测试首次连接自动追写 known_hosts 的行为。
+func (r *rig) upsertAcceptNewTarget(t *testing.T, id, host string, port int, user, password, knownHostsPath string) {
+	t.Helper()
+	if err := r.ConnMgr.Upsert(connection.Target{
+		ID: id, Type: connection.TypeSSH,
+		Host: host, Port: port, User: user,
+	}, &connection.SSHCredentials{
+		Method:         connection.SSHAuthPassword,
+		Password:       password,
+		KnownHostsMode: "accept-new",
+		KnownHostsPath: knownHostsPath,
+	}); err != nil {
+		t.Fatalf("upsert target: %v", err)
+	}
+}
+
 // generateEd25519KeyPair 生成一次性 ed25519 密钥对。
 // 返回：PEM 编码的私钥字节（OpenSSH format）与 xssh.PublicKey。
 func generateEd25519KeyPair(t *testing.T) ([]byte, xssh.PublicKey) {
@@ -306,6 +333,43 @@ func generateEd25519KeyPair(t *testing.T) ([]byte, xssh.PublicKey) {
 		t.Fatalf("wrap public key: %v", err)
 	}
 	return pemBytes, sshPub
+}
+
+// generateEd25519KeyPairWithPassphrase 生成加密的 ed25519 密钥对。
+// 私钥用 xssh.MarshalPrivateKeyWithPassphrase 加密，用于覆盖插件的
+// SSH 私钥口令解密分支。
+func generateEd25519KeyPairWithPassphrase(t *testing.T, passphrase string) ([]byte, xssh.PublicKey) {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("gen ed25519: %v", err)
+	}
+	block, err := xssh.MarshalPrivateKeyWithPassphrase(priv, "", []byte(passphrase))
+	if err != nil {
+		t.Fatalf("marshal encrypted private key: %v", err)
+	}
+	pemBytes := pem.EncodeToMemory(block)
+	sshPub, err := xssh.NewPublicKey(pub)
+	if err != nil {
+		t.Fatalf("wrap public key: %v", err)
+	}
+	return pemBytes, sshPub
+}
+
+// upsertEncryptedKeyTarget 注册使用加密私钥的 Target。
+func (r *rig) upsertEncryptedKeyTarget(t *testing.T, id, host string, port int, user string, privateKeyPEM []byte, passphrase string) {
+	t.Helper()
+	if err := r.ConnMgr.Upsert(connection.Target{
+		ID: id, Type: connection.TypeSSH,
+		Host: host, Port: port, User: user,
+	}, &connection.SSHCredentials{
+		Method:         connection.SSHAuthPrivateKey,
+		PrivateKey:     string(privateKeyPEM),
+		Passphrase:     passphrase,
+		KnownHostsMode: "insecure-ignore",
+	}); err != nil {
+		t.Fatalf("upsert target: %v", err)
+	}
 }
 
 // runExec 通过 Engine 执行一次 ssh.exec，并返回解析后的结果。

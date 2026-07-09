@@ -23,12 +23,12 @@ type sshCredentials struct {
 
 // dialTarget 汇总一次连接需要的所有参数。
 type dialTarget struct {
-	ID     string
-	Host   string
-	Port   int
-	User   string
-	Creds  sshCredentials
-	Meta   map[string]string
+	ID    string
+	Host  string
+	Port  int
+	User  string
+	Creds sshCredentials
+	Meta  map[string]string
 }
 
 // resolveTarget 从 sdk.Connection 抽取 host / port / user / creds。

@@ -54,7 +54,8 @@ type execResult struct {
 // execCmd 是 ssh.exec 的实现。
 // 权限：Execute（等价于用户远程手敲一条命令）。
 type execCmd struct {
-	pool *SessionPool
+	pool   *SessionPool
+	plugin *SSHPlugin
 }
 
 func (c *execCmd) Spec() sdk.CommandSpec {
@@ -88,6 +89,10 @@ func (c *execCmd) Execute(ctx context.Context, req *sdk.ExecuteRequest) (*sdk.Ex
 	dt, err := resolveTarget(req.Connection)
 	if err != nil {
 		return nil, sdk.NewError("CONNECTION_INVALID", err.Error(), err)
+	}
+	// 兜底 known_hosts 路径（<plugin data dir>/known_hosts）
+	if dt.Creds.KnownHostsPath == "" && c.plugin != nil {
+		dt.Creds.KnownHostsPath = c.plugin.defaultKnownHostsPath()
 	}
 
 	client, key, err := c.pool.Acquire(ctx, dt)

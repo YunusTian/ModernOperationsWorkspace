@@ -13,6 +13,7 @@ import (
 	"github.com/mow/mow/core/connection"
 	"github.com/mow/mow/core/logger"
 	"github.com/mow/mow/core/plugin"
+	"github.com/mow/mow/core/recipe"
 )
 
 // -----------------------------------------------------------------------------
@@ -27,6 +28,8 @@ type App struct {
 	ConnMgr *connection.Manager
 	PlugMgr *plugin.Manager
 	Engine  *command.Engine
+	Recipes *recipe.Registry
+	Runner  *recipe.Runner
 
 	// 已加载的插件句柄，退出时统一 Close。
 	loaded []func()
@@ -92,6 +95,8 @@ func loadApp(cfgPath string) (*App, error) {
 		ConnMgr: connMgr,
 		PlugMgr: plugMgr,
 		Engine:  engine,
+		Recipes: recipe.NewRegistry(),
+		Runner:  recipe.NewRunner(engine),
 	}, nil
 }
 

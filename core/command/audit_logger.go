@@ -2,7 +2,6 @@ package command
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/mow/mow/core/logger"
 	"github.com/mow/mow/sdk"
@@ -11,7 +10,8 @@ import (
 // LoggerAudit 是把审计事件写入结构化日志的 AuditSink 实现。
 //
 // 事件字段严格对齐 docs/observability.md：
-//   audit_id / plugin / command / permission / caller / duration_ms / ok / err
+//
+//	audit_id / plugin / command / permission / caller / duration_ms / ok / err
 //
 // SQLite append-only 存储版本将在 v0.2 引入 (core/audit 包)，
 // 届时把 LoggerAudit 换成 SQLiteAudit 即可，Engine 无需修改。
@@ -84,13 +84,4 @@ func callerKindString(t sdk.CallerType) string {
 	default:
 		return "unknown"
 	}
-}
-
-// paramsSummary 供未来引入脱敏后使用；当前保留占位。
-func paramsSummary(p json.RawMessage) any {
-	if len(p) == 0 {
-		return nil
-	}
-	// TODO(v0.2): 引入按 CommandSpec.InputSchema 的字段级脱敏
-	return json.RawMessage(p)
 }

@@ -14,7 +14,7 @@ import (
 // 反复 Acquire / Release 同一个 key，压测引用计数与 map 访问。
 //
 // 说明：
-//   - 用 stub dialer 返回同一个假 *ssh.Client（我们不真正做 IO）
+//   - 用 stub dialer 返回 nil 假 *ssh.Client（本测试不做真正 IO）
 //   - 观察：所有 goroutine 结束后，Stats 显示池内为 1 且 idle=1
 //     （所有 Release 后 refs 归零；未过 IdleTTL 不会被 GC）
 //   - 若 refs / lastUsed / map 存在竞态，此用例配合 `go test -race`
@@ -40,7 +40,7 @@ func TestSessionPool_ConcurrentAcquireRelease(t *testing.T) {
 
 	dt := &dialTarget{
 		ID: "t", Host: "1.2.3.4", Port: 22, User: "u",
-		Creds: sshCredentials{Method: "password", Password: "x"},
+		Creds: sshCredentials{Method: "password", Password: "x", KnownHostsMode: "insecure-ignore"},
 	}
 
 	const (
@@ -109,7 +109,7 @@ func TestSessionPool_EvictConcurrent(t *testing.T) {
 
 	dt := &dialTarget{
 		ID: "t", Host: "1.2.3.4", Port: 22, User: "u",
-		Creds: sshCredentials{Method: "password", Password: "x"},
+		Creds: sshCredentials{Method: "password", Password: "x", KnownHostsMode: "insecure-ignore"},
 	}
 
 	var wg sync.WaitGroup

@@ -11,6 +11,7 @@ package main
 
 import (
 	"context"
+	"path/filepath"
 
 	"github.com/mow/mow/sdk"
 	"github.com/mow/mow/sdk/pluginserve"
@@ -18,7 +19,8 @@ import (
 
 // SSHPlugin 是 MOW 官方 SSH 插件。
 type SSHPlugin struct {
-	pool *SessionPool
+	pool    *SessionPool
+	dataDir string // Init 时写入；Command 内读取以推导默认 known_hosts 路径
 }
 
 func newSSHPlugin() *SSHPlugin {
@@ -37,14 +39,26 @@ func (p *SSHPlugin) Metadata() sdk.Metadata {
 	}
 }
 
-func (p *SSHPlugin) Init(ctx context.Context, req sdk.InitRequest) error { return nil }
-func (p *SSHPlugin) Shutdown(ctx context.Context) error                  { p.pool.Close(); return nil }
-func (p *SSHPlugin) HealthCheck(ctx context.Context) sdk.HealthStatus    { return sdk.StatusHealthy }
+func (p *SSHPlugin) Init(ctx context.Context, req sdk.InitRequest) error {
+	p.dataDir = req.DataDir
+	return nil
+}
+func (p *SSHPlugin) Shutdown(ctx context.Context) error               { p.pool.Close(); return nil }
+func (p *SSHPlugin) HealthCheck(ctx context.Context) sdk.HealthStatus { return sdk.StatusHealthy }
 func (p *SSHPlugin) Commands() []sdk.CommandHandler {
 	return []sdk.CommandHandler{
 		&pingCmd{},
-		&execCmd{pool: p.pool},
+		&execCmd{pool: p.pool, plugin: p},
 	}
+}
+
+// defaultKnownHostsPath 返回插件级默认 known_hosts 路径。
+// 一般为 <plugin data dir>/known_hosts；未提供 DataDir 时返回空串。
+func (p *SSHPlugin) defaultKnownHostsPath() string {
+	if p.dataDir == "" {
+		return ""
+	}
+	return filepath.Join(p.dataDir, "known_hosts")
 }
 
 func main() {
