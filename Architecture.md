@@ -8,7 +8,7 @@
 - 更新日期：2026-07-09
 - 文档性质：架构 / 开发规范 / 路线图（RFC 起点）
 
----
+***
 
 ## 目录
 
@@ -26,7 +26,7 @@
 12. [设计原则（必须遵守）](#十二设计原则必须遵守)
 13. [平台愿景（长期）](#十三平台愿景长期)
 
----
+***
 
 ## 一、项目愿景（Vision）
 
@@ -50,16 +50,16 @@
 
 用户表达的是**领域意图**，而不是 Shell 命令：
 
-| 用户意图 | 错误绑定 | 正确抽象 |
-| --- | --- | --- |
-| 查看容器 | `docker ps` | Docker/Podman/K8s Plugin 都可实现 |
-| 重启服务 | `systemctl restart` | Service Plugin 抽象 |
-| 查看日志 | `journalctl` | Log Plugin 抽象 |
-| 上传文件 | `scp` | File Plugin 抽象 |
+| 用户意图 | 错误绑定                | 正确抽象                          |
+| ---- | ------------------- | ----------------------------- |
+| 查看容器 | `docker ps`         | Docker/Podman/K8s Plugin 都可实现 |
+| 重启服务 | `systemctl restart` | Service Plugin 抽象             |
+| 查看日志 | `journalctl`        | Log Plugin 抽象                 |
+| 上传文件 | `scp`               | File Plugin 抽象                |
 
 **AI、GUI、CLI 看到的都是同一个领域模型，而不是一堆 Shell。**
 
----
+***
 
 ## 二、设计哲学
 
@@ -93,11 +93,13 @@ User / AI / CLI / GUI / API
 ### 3. AI 永远不直接生成 Shell 去操作服务器
 
 AI 只能：
+
 - **理解用户意图**
 - **选择或组合已经存在的 Recipe / Workflow / Command**
 - **调用它们并解释结果**
 
 这样做的好处：
+
 - Token 更少（不需要让 LLM 逐条推理 shell）
 - 更安全（Recipe 已被测试过，参数经过验证）
 - 更快（毫秒级执行，无需 LLM 推理）
@@ -109,7 +111,7 @@ AI 只能：
 
 只要守住这一条，未来接入任何模型、增加任何插件，都不会推翻已有设计。
 
----
+***
 
 ## 三、总体架构
 
@@ -143,18 +145,18 @@ AI 只能：
 
 ### 分层职责
 
-| 层级 | 职责 |
-| --- | --- |
-| **UI Layer** | Terminal / Dashboard / AI Chat 等交互形式，不放业务逻辑 |
-| **Command Engine** | 统一执行入口，找到并调用对应 Plugin 的 Command |
-| **Workflow Engine** | 多步 Recipe 编排、失败回滚、重试、通知 |
-| **Recipe Engine** | 预定义、经过验证的操作单元（可能包含多条 Command） |
-| **Plugin Manager** | 插件生命周期、注册、版本、权限 |
-| **Connection Manager** | 所有连接的建立、复用、密钥、断线重连 |
+| 层级                     | 职责                                          |
+| ---------------------- | ------------------------------------------- |
+| **UI Layer**           | Terminal / Dashboard / AI Chat 等交互形式，不放业务逻辑 |
+| **Command Engine**     | 统一执行入口，找到并调用对应 Plugin 的 Command             |
+| **Workflow Engine**    | 多步 Recipe 编排、失败回滚、重试、通知                     |
+| **Recipe Engine**      | 预定义、经过验证的操作单元（可能包含多条 Command）               |
+| **Plugin Manager**     | 插件生命周期、注册、版本、权限                             |
+| **Connection Manager** | 所有连接的建立、复用、密钥、断线重连                          |
 
 **重点原则**：GUI / CLI / AI / API 全部**只通过 Command Engine 与内核交互**，不允许绕过。
 
----
+***
 
 ## 四、核心模块
 
@@ -163,6 +165,7 @@ AI 只能：
 负责：所有连接管理。
 
 **支持连接类型**：
+
 - SSH
 - Docker（本地 / TCP / TLS）
 - PVE API
@@ -170,6 +173,7 @@ AI 只能：
 - WebSocket
 
 **职责**：
+
 - 建立连接 / 保持连接 / 自动重连
 - 会话缓存与复用
 - 密钥、凭据、加密存储
@@ -182,6 +186,7 @@ AI 只能：
 生命周期：`Load → Enable → Disable → Unload`
 
 插件必须注册：
+
 - Metadata（元信息）
 - Commands（能力）
 - Recipes（预定义操作）
@@ -210,6 +215,7 @@ RunCommand(pluginId, commandId, params)
 ```
 
 **Command 契约**：
+
 - 每条 Command 都有 **唯一 ID**（例：`ssh.exec` / `docker.list` / `pve.startVM`）
 - 输入 / 输出 / 错误 **全部可序列化**（便于 CLI、API、AI 调用）
 - 支持 **同步 / 异步 / 流式**（如 Terminal 输出）
@@ -219,11 +225,13 @@ RunCommand(pluginId, commandId, params)
 Recipe = **由若干 Command 组成的、预定义、已测试的操作**。
 
 示例：
+
 - `system.cpu` → `top -bn1 | head`
 - `system.disk` → `df -h`
 - `docker.status` → `docker ps` + `docker stats` + `docker images`
 
 **特点**：
+
 - 完全**不依赖 AI** 也可运行
 - 参数经过验证，安全可控
 - 是 AI 调用的**首选载体**
@@ -242,13 +250,14 @@ Workflow = **多个 Recipe / Command 的编排**。
 ```
 
 **能力**：
+
 - 条件分支 / 并行 / 串行
 - 失败回滚
 - 重试策略
 - 通知（邮件 / IM / Webhook）
 - 变量与上下文传递
 
----
+***
 
 ## 五、Plugin SDK
 
@@ -281,6 +290,7 @@ Plugin
 - `pve.startVM`
 
 要求：
+
 - 输入 / 输出 / 错误全部**可序列化**
 - 单一职责，不承担编排逻辑
 
@@ -321,7 +331,7 @@ workflows:
   - id: deploy.node
 ```
 
----
+***
 
 ## 六、AI 架构
 
@@ -389,7 +399,7 @@ Run Recipe: system.systemd (docker)
 汇总分析并解释
 ```
 
----
+***
 
 ## 七、目录结构
 
@@ -426,7 +436,7 @@ project/
 └── tests/
 ```
 
----
+***
 
 ## 八、插件开发规范
 
@@ -454,17 +464,17 @@ Docker Plugin
     └── docker.deploy
 ```
 
----
+***
 
 ## 九、权限模型
 
 所有 Command **必须声明权限**：
 
-| 权限 | 说明 |
-| --- | --- |
-| **Read** | 只读，例如 `docker.list`、`system.cpu` |
-| **Write** | 写文件、修改配置，例如 `ssh.upload` |
-| **Execute** | 执行命令，例如 `ssh.exec` |
+| 权限            | 说明                                    |
+| ------------- | ------------------------------------- |
+| **Read**      | 只读，例如 `docker.list`、`system.cpu`      |
+| **Write**     | 写文件、修改配置，例如 `ssh.upload`              |
+| **Execute**   | 执行命令，例如 `ssh.exec`                    |
 | **Dangerous** | 不可逆或高影响操作，例如 `rm`、`docker rm -f`、重启节点 |
 
 ### AI 调用规则
@@ -473,7 +483,7 @@ Docker Plugin
 - Write / Execute → 记录审计日志
 - **Dangerous → 必须弹窗询问 / 二次确认**
 
----
+***
 
 ## 十、日志与可观测
 
@@ -499,11 +509,11 @@ result=Success duration=42ms
 - **回放**：可以重放某次 Workflow
 - **调试**：AI 决策路径可追溯
 
----
+***
 
 ## 十一、Roadmap
 
-### v0.1（1~2 周） — 优秀的 SSH 客户端
+### v0.1（1\~2 周） — 优秀的 SSH 客户端
 
 - SSH 连接
 - Terminal
@@ -512,7 +522,7 @@ result=Success duration=42ms
 - Plugin Framework（雏形）
 - **不接入 AI**
 
-### v0.2（2~3 周） — Command / Recipe / Workflow
+### v0.2（2\~3 周） — Command / Recipe / Workflow
 
 - Command Engine
 - Recipe Engine（`system.cpu` / `system.disk` / `docker.status` 等）
@@ -537,24 +547,24 @@ result=Success duration=42ms
 - 数据库 Plugin
 - Marketplace（插件市场雏形）
 
----
+***
 
 ## 十二、设计原则（必须遵守）
 
 写入 `CONTRIBUTING.md`，任何贡献者必须遵守：
 
-| 原则 | 说明 |
-| --- | --- |
-| **Core First** | 核心能力先于 UI，所有界面都调用同一套 Core |
-| **AI Optional** | AI 是可选能力，产品不能依赖 AI 才能使用 |
-| **Plugin Everything** | 新能力优先做成插件，而不是直接修改 Core |
-| **Workflow over Script** | 把经验沉淀为可复用 Workflow，而不是一次性脚本 |
-| **API First** | Core 对外提供统一 API，CLI / GUI / AI 都通过 API 调用 |
-| **Safety First** | 危险操作必须权限检查与二次确认 |
-| **Observable** | 每个动作都可追踪、可审计、可回放 |
-| **Domain Driven** | 抽象领域模型，而不是协议 / Shell |
+| 原则                       | 说明                                        |
+| ------------------------ | ----------------------------------------- |
+| **Core First**           | 核心能力先于 UI，所有界面都调用同一套 Core                 |
+| **AI Optional**          | AI 是可选能力，产品不能依赖 AI 才能使用                   |
+| **Plugin Everything**    | 新能力优先做成插件，而不是直接修改 Core                    |
+| **Workflow over Script** | 把经验沉淀为可复用 Workflow，而不是一次性脚本               |
+| **API First**            | Core 对外提供统一 API，CLI / GUI / AI 都通过 API 调用 |
+| **Safety First**         | 危险操作必须权限检查与二次确认                           |
+| **Observable**           | 每个动作都可追踪、可审计、可回放                          |
+| **Domain Driven**        | 抽象领域模型，而不是协议 / Shell                      |
 
----
+***
 
 ## 十三、平台愿景（长期）
 
@@ -573,7 +583,7 @@ result=Success duration=42ms
 - 不"边聊边改架构"，先文档后代码
 - 保持一致的设计语言，避免功能堆积导致混乱
 
----
+***
 
 ## 附录 A：MVP 起步指南
 
@@ -590,3 +600,4 @@ result=Success duration=42ms
 > **AI is optional. Automation is essential.**
 >
 > **Core 永远不依赖 AI，AI 永远依赖 Core。**
+
