@@ -1,14 +1,13 @@
 version: v2
 
 plugins:
-  # 生成 Go 结构体
-  - remote: buf.build/protocolbuffers/go
+  # 使用本地已安装的 protoc-gen-go / protoc-gen-go-grpc
+  - local: protoc-gen-go
     out: .
     opt:
       - paths=source_relative
 
-  # 生成 gRPC Server / Client
-  - remote: buf.build/grpc/go
+  - local: protoc-gen-go-grpc
     out: .
     opt:
       - paths=source_relative

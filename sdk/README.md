@@ -15,6 +15,7 @@ import (
     "encoding/json"
 
     "github.com/mow/mow/sdk"
+    "github.com/mow/mow/sdk/pluginserve"
 )
 
 // ---- Plugin ----
@@ -86,19 +87,19 @@ func (h *ExecHandler) ExecuteStream(ctx context.Context, s sdk.Stream) error {
 // ---- 进程入口 ----
 
 func main() {
-    sdk.Serve(&SSHPlugin{})
+    pluginserve.Serve(&SSHPlugin{})
 }
 ```
 
 ## SDK 分层
 
-| 文件 | 职责 |
+| 目录 | 职责 |
 | --- | --- |
-| `plugin.go` | Plugin 抽象、Metadata、健康状态 |
-| `command.go` | CommandHandler、CommandSpec、Permission、Caller |
-| `stream.go` | Stream 抽象、Stdin / Signal 入站事件 |
-| `connection.go` | Connection、Error 类型 |
-| `serve.go` | 进程入口 Serve + 静态校验 Validate |
+| `sdk/` | Plugin / Command / Stream / Error 等对外抽象 |
+| `sdk/pluginserve/` | 插件进程入口：`pluginserve.Serve(...)` |
+| `sdk/pluginclient/` | Core 侧加载器：`pluginclient.LoadFromBinary(...)` |
+| `sdk/proto/` | gRPC 接口定义 + 生成物 |
+| `sdk/internal/grpcbridge/` | proto ↔ Go 类型桥接（不对外） |
 
 ## 核心概念
 
