@@ -84,7 +84,20 @@ project/
 - `core/*` → `ai plugin`（**禁止**）
 - `plugins/*` → `apps/*`（**禁止**）
 
-## 5. 待讨论
+## 5. 技术栈决策（v0.1）
 
-- [ ] Core 与 Plugin 之间的通信采用进程内还是子进程 IPC
-- [ ] 是否引入 WASM 作为第三方插件沙箱
+| 项 | 选型 | 说明 |
+| --- | --- | --- |
+| Core 语言 | **Go 1.22+** | 单二进制、跨平台交叉编译 |
+| 桌面 UI | **Wails v2** | WebView 内嵌 + Go 后端同进程 |
+| 前端 | **React + TypeScript** | 生态最完整，配合 xterm.js / shadcn/ui |
+| CLI | **Cobra** | 事实标准 |
+| 配置 | **Viper + TOML** | |
+| 日志 | **`log/slog`（Go 标准库）** | 结构化 JSON |
+| 仓库布局 | **Monorepo + `go.work`** | apps / core / sdk / plugins |
+| Plugin 加载 | **hashicorp/go-plugin（gRPC 子进程）** | Terraform 同款，安全隔离 |
+
+## 6. 待讨论
+
+- [ ] 是否引入 WASM 作为第三方插件沙箱（v1.0+ 再评估）
+- [ ] 官方 Plugin 是否需要"进程内加载"作为高性能通道（默认全部走 gRPC）

@@ -60,9 +60,18 @@ CommandResult
 - 每次调用生成 `auditId`，写入审计日志（详见 [observability.md](./observability.md)）
 - Dangerous Command 必须由调用方提供二次确认标记
 
-## 6. 待讨论
+## 6. 技术选型（v0.1）
 
-- [ ] 流式返回的具体传输协议（Channel / gRPC stream / SSE）
-- [ ] Cancel Token 与超时的组合语义
-- [ ] Command 版本升级与向后兼容策略
-- [ ] 参数 Schema 使用 JSON Schema 还是自定义 DSL
+| 项 | 选型 | 说明 |
+| --- | --- | --- |
+| 实现语言 | **Go 1.22+** | Core module `core/command` |
+| 参数 Schema | **JSON Schema** | 与 gRPC + JSON 序列化对齐 |
+| 流式传输 | **gRPC server-stream** | Terminal / Log 跟随天然适配 |
+| 取消传播 | **`context.Context`** | Go 标准实践 |
+| 序列化 | Protobuf（Plugin 边界）/ JSON（对外 API） | |
+
+## 7. 待讨论
+
+- [ ] Command 版本升级与向后兼容策略（`ssh.exec@v1` vs `ssh.exec@v2`）
+- [ ] Timeout 与 Cancel 的组合语义边界（是否允许 Command 忽略 cancel）
+- [ ] AuditId 的生成方式（ULID / UUIDv7）

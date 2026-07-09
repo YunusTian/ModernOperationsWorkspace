@@ -84,10 +84,20 @@ IAiProvider
 └── Config              # apiKey / endpoint / model
 ```
 
-## 8. 待讨论
+## 8. 技术选型（v0.4 前不启动实现，此处仅锁定方向）
 
-- [ ] Tool 调用协议是否统一为 MCP
-- [ ] 上下文压缩策略（长会话 / 大结果）
-- [ ] 本地模型的分发与更新
-- [ ] Prompt 版本化与回放
-- [ ] Token 计费与限额
+| 项 | 选型 | 说明 |
+| --- | --- | --- |
+| AI Plugin 载体 | **独立 Plugin（hashicorp/go-plugin）** | 与其他 Plugin 一致 |
+| Tool 调用协议 | **MCP（Model Context Protocol）** | 未来主流，官方生态兼容 |
+| SDK | `sashabaranov/go-openai`（OpenAI 兼容协议） | 兼容 DeepSeek / Qwen / 本地 vLLM |
+| Provider 抽象 | Core 定义接口，Plugin 实现 | ChatGPT / Claude / Gemini / Local |
+| 上下文压缩 | 内置摘要策略 + 分片检索 | v0.4 起步 |
+
+## 9. 待讨论
+
+- [ ] Tool 定义如何自动从 Command / Recipe 目录生成
+- [ ] 本地模型的分发与更新（是否内置 Ollama 集成）
+- [ ] Prompt 版本化与回放的存储位置
+- [ ] Token 计费与限额（企业场景）
+- [ ] Dangerous 操作的 AI 二次确认 UI 交互

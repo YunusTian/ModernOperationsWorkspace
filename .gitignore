@@ -1,0 +1,77 @@
+# ===== Go =====
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+out/
+
+# Test / Coverage
+*.test
+*.out
+coverage.*
+*.prof
+
+# Go workspace（保留 go.work，忽略 sum）
+go.work.sum
+
+# ===== Node / Frontend (Wails) =====
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.yarn-cache/
+.pnp.*
+
+# 构建产物
+dist/
+build/
+.vite/
+.cache/
+.turbo/
+.next/
+
+# ===== Wails =====
+apps/desktop/build/bin/
+apps/desktop/frontend/dist/
+apps/desktop/frontend/wailsjs/
+
+# ===== IDE / Editor =====
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== 环境变量 / 凭据 =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.yaml
+
+# ===== 本地数据 / 日志 =====
+*.log
+logs/
+data/
+tmp/
+*.db
+*.sqlite
+*.sqlite3
+
+# ===== Protobuf 生成物（如启用生成，可注释此行） =====
+# **/*.pb.go

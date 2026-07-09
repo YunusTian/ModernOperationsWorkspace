@@ -53,7 +53,13 @@
 - 不绑定任何单一云厂商
 - 不依赖任何单一 AI Provider
 
-## 7. 待讨论
+## 7. 技术栈锁定（v0.1）
+
+一句话总结（详见 [architecture.md](./architecture.md)）：
+
+> **Go 1.22+ Core** · **Wails v2 + React/TS Desktop** · **Cobra CLI** · **hashicorp/go-plugin (gRPC)** · **Monorepo + go.work**
+
+## 8. 待讨论
 
 - [ ] 是否面向企业提供 Team Workspace 的首个版本时间点
 - [ ] Marketplace 的商业模式（开源 / 收费）

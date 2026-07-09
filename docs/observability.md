@@ -42,9 +42,20 @@ result=Success duration=42ms
 | Diagnostic | 崩溃 / 异常 | Crash Report |
 | AI Trace | Prompt / Tool Call / Response | 结构化，可回放 |
 
-## 5. 待讨论
+## 5. 技术选型（v0.1）
 
-- [ ] 日志脱敏策略（密钥 / Token / 密码字段自动屏蔽）
-- [ ] 是否内置 OpenTelemetry 导出
-- [ ] 审计日志是否支持只追加（append-only）存储
+| 项 | 选型 | 说明 |
+| --- | --- | --- |
+| 日志库 | **`log/slog`（Go 1.21+ 标准库）** | 结构化 JSON，零依赖 |
+| 日志格式 | JSON Lines | 便于机器解析 |
+| 审计存储 | 本地 SQLite（`modernc.org/sqlite`，纯 Go 无 CGO） | append-only 表设计 |
+| 日志滚动 | `lumberjack.v2` | 大小 / 时间双策略 |
+| 脱敏 | 自研中间件（关键字段名单 + 正则） | 密码 / Token / 私钥 |
+| 分布式追踪 | 预留 OpenTelemetry 接口，v0.2+ 引入 | |
+
+## 6. 待讨论
+
+- [ ] 审计日志是否上云 / 上远端 collector（企业场景）
+- [ ] AI Trace 的存储上限与自动归档
 - [ ] 回放模式的实现方式（dry-run / 影子执行）
+- [ ] 敏感字段脱敏策略的可配置化

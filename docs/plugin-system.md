@@ -123,9 +123,19 @@ Docker Plugin
     └── docker.deploy
 ```
 
-## 4. 待讨论
+## 4. 技术选型（v0.1）
 
-- [ ] 插件加载方式：进程内 / 子进程 IPC / WASM
-- [ ] 插件签名与来源校验
-- [ ] 插件热更新与版本兼容策略
+| 项 | 选型 | 说明 |
+| --- | --- | --- |
+| 加载机制 | **hashicorp/go-plugin（gRPC 子进程）** | Terraform 同款，进程隔离 + 独立崩溃 |
+| 接口定义 | **Protocol Buffers**（`sdk/proto/plugin.proto`） | 语言无关，未来可支持 Rust/Python 插件 |
+| 分发格式 | v0.1 单二进制文件（本地路径） | Marketplace 之后再定 |
+| SDK 语言 | Go（首版） | 通过 gRPC 天然支持多语言 |
+
+## 5. 待讨论
+
+- [ ] 插件签名与来源校验（Sigstore / cosign？）
+- [ ] 插件热更新与版本兼容策略（gRPC 协议版本号约定）
 - [ ] Marketplace 分发格式（zip / oci artifact / git ref）
+- [ ] 是否为官方 Plugin 提供进程内快速通道（当前默认统一 gRPC）
+- [ ] WASM 沙箱作为不可信来源方案的引入时机

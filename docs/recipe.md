@@ -40,9 +40,17 @@ recipe:
     strategy: merge          # merge / last / custom
 ```
 
-## 5. 待讨论
+## 5. 技术选型（v0.1）
 
-- [ ] Recipe 是否允许包含控制流（if / loop）——建议交给 Workflow
-- [ ] Recipe 是否允许跨 Plugin 组合
+| 项 | 选型 | 说明 |
+| --- | --- | --- |
+| 声明格式 | **YAML** | 与 Workflow 保持一致 |
+| 参数校验 | JSON Schema（转换自 YAML） | 与 Command 参数复用 |
+| 输出合并 | 声明式 `strategy: merge / last / custom` | |
+
+## 6. 待讨论
+
+- [ ] Recipe 是否允许包含控制流（if / loop）——**v0.1 决定：交给 Workflow**
+- [ ] Recipe 是否允许跨 Plugin 组合（v0.1 允许，但需权限并集校验）
 - [ ] Recipe 参数与 Command 参数的映射约定
-- [ ] Recipe 输出的标准化 Schema
+- [ ] Recipe 输出的标准化 Schema（考虑与 AI 消费对齐）

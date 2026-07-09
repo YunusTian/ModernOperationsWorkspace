@@ -43,9 +43,21 @@ IConnection
 - 生命周期：进程内解密；不落明文日志
 - 分类：密码 / 私钥 / Token / TLS 证书
 
-## 5. 待讨论
+## 5. 技术选型（v0.1）
 
-- [ ] Windows / macOS / Linux 三端的密钥库统一接口
-- [ ] 是否引入 Session Pool 上限
-- [ ] 断线重连策略（指数退避 / 最大重试次数）
-- [ ] 多跳（Jump Host）如何抽象
+| 项 | 选型 | 说明 |
+| --- | --- | --- |
+| SSH | **`golang.org/x/crypto/ssh`** + `pkg/sftp` | Go 官方 + 工业级 SFTP |
+| Docker | **`github.com/docker/docker/client`** | Docker 官方 SDK |
+| HTTP | Go 标准库 `net/http` | |
+| WebSocket | `nhooyr.io/websocket` | 现代、简洁 |
+| 凭据存储 | **`zalando/go-keyring`**（平台密钥库） + 回退 AES-256-GCM | Win Credential Manager / macOS Keychain / libsecret |
+| 会话池 | Core 自研（基于 `sync.Map` + 引用计数） | |
+| 重连策略 | 指数退避（`cenkalti/backoff/v4`） | |
+
+## 6. 待讨论
+
+- [ ] Session Pool 上限与 LRU 淘汰策略
+- [ ] 最大重试次数与告警门槛
+- [ ] 多跳（Jump Host）如何抽象为一等公民
+- [ ] Linux 无桌面环境时的凭据存储回退策略（文件加密 + 主口令）

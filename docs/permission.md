@@ -39,9 +39,19 @@ ConfirmationResponse
 └── ts
 ```
 
-## 4. 待讨论
+## 4. 技术选型（v0.1）
 
-- [ ] 是否支持基于角色（RBAC）的多用户模型
+| 项 | 选型 | 说明 |
+| --- | --- | --- |
+| 权限声明位置 | Plugin YAML manifest + Command 结构体 tag | 双向校验 |
+| 权限校验 | Command Engine 中间件 | 所有调用统一拦截 |
+| 二次确认 UI | Wails 前端弹窗（桌面） / TTY prompt（CLI） | |
+| Dangerous 白名单 | 用户可配置"免确认清单" | 高级用户提效 |
+
+## 5. 待讨论
+
+- [ ] 是否支持基于角色（RBAC）的多用户模型（v0.5+ Team Workspace）
 - [ ] 团队场景下的审批链
 - [ ] Dangerous 操作是否强制录像 / 快照
 - [ ] 是否引入"只读模式"全局开关
+- [ ] 二次确认的超时策略（AI 场景不能无限等待）
