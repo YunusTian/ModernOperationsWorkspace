@@ -2,9 +2,11 @@ package e2e
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net"
@@ -117,9 +119,33 @@ func (l *countingListener) Accept() (net.Conn, error) {
 	return c, err
 }
 
+// serverOption 用于按需配置 fakeSSHServer 的鉴权方式。
+type serverOption func(*glssh.Server)
+
+// withPassword 启用用户名 + 密码鉴权。
+func withPassword(user, password string) serverOption {
+	return func(s *glssh.Server) {
+		s.PasswordHandler = func(ctx glssh.Context, given string) bool {
+			return ctx.User() == user && given == password
+		}
+	}
+}
+
+// withPublicKey 启用公钥鉴权。authorized 是被授权的公钥。
+func withPublicKey(user string, authorized xssh.PublicKey) serverOption {
+	return func(s *glssh.Server) {
+		s.PublicKeyHandler = func(ctx glssh.Context, given glssh.PublicKey) bool {
+			if ctx.User() != user {
+				return false
+			}
+			return glssh.KeysEqual(given, authorized)
+		}
+	}
+}
+
 // startFakeSSHServer 启动一个 in-process SSH server。
-// 认证：仅接受给定 user + password；handler 描述会话内行为。
-func startFakeSSHServer(t *testing.T, user, password string, h sessionHandler) *fakeSSHServer {
+// handler 描述会话行为；opts 决定鉴权方式（可组合）。
+func startFakeSSHServer(t *testing.T, h sessionHandler, opts ...serverOption) *fakeSSHServer {
 	t.Helper()
 
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -136,9 +162,9 @@ func startFakeSSHServer(t *testing.T, user, password string, h sessionHandler) *
 	server := &glssh.Server{
 		Addr:    "127.0.0.1:0",
 		Handler: glssh.Handler(h),
-		PasswordHandler: func(ctx glssh.Context, given string) bool {
-			return ctx.User() == user && given == password
-		},
+	}
+	for _, opt := range opts {
+		opt(server)
 	}
 	server.AddHostKey(signer)
 
@@ -232,6 +258,41 @@ func (r *rig) upsertPasswordTarget(t *testing.T, id, host string, port int, user
 	}); err != nil {
 		t.Fatalf("upsert target: %v", err)
 	}
+}
+
+// upsertKeyTarget 注册一个基于私钥（PEM 字节）的 SSH Target。
+func (r *rig) upsertKeyTarget(t *testing.T, id, host string, port int, user string, privateKeyPEM []byte) {
+	t.Helper()
+	if err := r.ConnMgr.Upsert(connection.Target{
+		ID: id, Type: connection.TypeSSH,
+		Host: host, Port: port, User: user,
+	}, &connection.SSHCredentials{
+		Method:         connection.SSHAuthPrivateKey,
+		PrivateKey:     string(privateKeyPEM),
+		KnownHostsMode: "insecure-ignore",
+	}); err != nil {
+		t.Fatalf("upsert target: %v", err)
+	}
+}
+
+// generateEd25519KeyPair 生成一次性 ed25519 密钥对。
+// 返回：PEM 编码的私钥字节（OpenSSH format）与 xssh.PublicKey。
+func generateEd25519KeyPair(t *testing.T) ([]byte, xssh.PublicKey) {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("gen ed25519: %v", err)
+	}
+	block, err := xssh.MarshalPrivateKey(priv, "")
+	if err != nil {
+		t.Fatalf("marshal private key: %v", err)
+	}
+	pemBytes := pem.EncodeToMemory(block)
+	sshPub, err := xssh.NewPublicKey(pub)
+	if err != nil {
+		t.Fatalf("wrap public key: %v", err)
+	}
+	return pemBytes, sshPub
 }
 
 // runExec 通过 Engine 执行一次 ssh.exec，并返回解析后的结果。

@@ -97,7 +97,9 @@ func (p *SessionPool) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for k, pc := range p.clients {
-		_ = pc.Client.Close()
+		if pc.Client != nil {
+			_ = pc.Client.Close()
+		}
 		pc.closed = true
 		delete(p.clients, k)
 	}
@@ -126,7 +128,9 @@ func (p *SessionPool) Acquire(ctx context.Context, dt *dialTarget) (*ssh.Client,
 	defer p.mu.Unlock()
 	// 竞争窗口：并发下可能已被另一个 Acquire 建好。
 	if pc, ok := p.clients[key]; ok && !pc.closed {
-		_ = client.Close()
+		if client != nil {
+			_ = client.Close()
+		}
 		pc.refs++
 		pc.lastUsed = time.Now()
 		return pc.Client, key, nil
@@ -211,7 +215,9 @@ func (p *SessionPool) sweep() {
 	}
 	p.mu.Unlock()
 	for _, pc := range toClose {
-		_ = pc.Client.Close()
+		if pc.Client != nil {
+			_ = pc.Client.Close()
+		}
 	}
 }
 

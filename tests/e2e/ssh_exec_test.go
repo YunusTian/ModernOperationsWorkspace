@@ -6,6 +6,8 @@
 //   TestSSHExec_Stdin            走 params.stdin，服务端 echo 回来验证
 //   TestSSHExec_ContextCancel    短超时命中，返回 CANCELED
 //   TestSessionPool_Reuse        连续两次 exec 只做一次 TCP 握手
+//   TestSSHExec_PublicKey        ed25519 私钥鉴权，覆盖 privatekey 分支
+//   TestSSHExec_MissingCmd       缺 cmd 参数应返回 PARAM_INVALID
 //
 // 所有用例共享 helpers_test.go 中的 rig / fakeSSHServer 装配代码。
 package e2e
@@ -27,7 +29,7 @@ import (
 func TestSSHExec_EndToEnd(t *testing.T) {
 	const user, password = "e2euser", "e2epass"
 	observed := make(chan string, 1)
-	fs := startFakeSSHServer(t, user, password, echoHandler(0, observed))
+	fs := startFakeSSHServer(t, echoHandler(0, observed), withPassword(user, password))
 
 	r := newRig(t)
 	r.upsertPasswordTarget(t, "fake", "127.0.0.1", fs.Port, user, password)
@@ -64,7 +66,7 @@ func TestSSHExec_EndToEnd(t *testing.T) {
 
 func TestSSHExec_ExitCodeNonZero(t *testing.T) {
 	const user, password = "u", "p"
-	fs := startFakeSSHServer(t, user, password, echoHandler(2, nil))
+	fs := startFakeSSHServer(t, echoHandler(2, nil), withPassword(user, password))
 
 	r := newRig(t)
 	r.upsertPasswordTarget(t, "fake", "127.0.0.1", fs.Port, user, password)
@@ -89,7 +91,7 @@ func TestSSHExec_ExitCodeNonZero(t *testing.T) {
 
 func TestSSHExec_Stdin(t *testing.T) {
 	const user, password = "u", "p"
-	fs := startFakeSSHServer(t, user, password, stdinEchoHandler())
+	fs := startFakeSSHServer(t, stdinEchoHandler(), withPassword(user, password))
 
 	r := newRig(t)
 	r.upsertPasswordTarget(t, "fake", "127.0.0.1", fs.Port, user, password)
@@ -118,7 +120,7 @@ func TestSSHExec_Stdin(t *testing.T) {
 
 func TestSSHExec_ContextCancel(t *testing.T) {
 	const user, password = "u", "p"
-	fs := startFakeSSHServer(t, user, password, sleepHandler())
+	fs := startFakeSSHServer(t, sleepHandler(), withPassword(user, password))
 
 	r := newRig(t)
 	r.upsertPasswordTarget(t, "fake", "127.0.0.1", fs.Port, user, password)
@@ -149,7 +151,7 @@ func TestSSHExec_ContextCancel(t *testing.T) {
 
 func TestSessionPool_Reuse(t *testing.T) {
 	const user, password = "u", "p"
-	fs := startFakeSSHServer(t, user, password, echoHandler(0, nil))
+	fs := startFakeSSHServer(t, echoHandler(0, nil), withPassword(user, password))
 
 	r := newRig(t)
 	r.upsertPasswordTarget(t, "fake", "127.0.0.1", fs.Port, user, password)
@@ -164,5 +166,62 @@ func TestSessionPool_Reuse(t *testing.T) {
 	}
 	if got := fs.Conns.Load(); got != 1 {
 		t.Errorf("expected 1 accepted TCP connection (pool reuse), got %d", got)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// 公钥鉴权：ed25519 私钥 → 服务端 KeysEqual 比对
+// -----------------------------------------------------------------------------
+
+func TestSSHExec_PublicKey(t *testing.T) {
+	const user = "keyuser"
+	privatePEM, pub := generateEd25519KeyPair(t)
+	fs := startFakeSSHServer(t, echoHandler(0, nil), withPublicKey(user, pub))
+
+	r := newRig(t)
+	r.upsertKeyTarget(t, "fake", "127.0.0.1", fs.Port, user, privatePEM)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, _, err := r.runExec(ctx, t, "fake", map[string]any{"cmd": "whoami"}, 5*time.Second)
+	if err != nil {
+		t.Fatalf("engine run: %v", err)
+	}
+	if want := "echo:whoami\n"; out.Stdout != want {
+		t.Errorf("stdout mismatch: want %q got %q", want, out.Stdout)
+	}
+	if out.ExitCode != 0 {
+		t.Errorf("exit_code want 0, got %d", out.ExitCode)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// 参数校验：缺 cmd 应返回 sdk.Error{Code:"PARAM_INVALID"}，不接触远端
+// -----------------------------------------------------------------------------
+
+func TestSSHExec_MissingCmd(t *testing.T) {
+	const user, password = "u", "p"
+	fs := startFakeSSHServer(t, echoHandler(0, nil), withPassword(user, password))
+
+	r := newRig(t)
+	r.upsertPasswordTarget(t, "fake", "127.0.0.1", fs.Port, user, password)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, _, err := r.runExec(ctx, t, "fake", map[string]any{}, 5*time.Second)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var se *sdk.Error
+	if !errors.As(err, &se) {
+		t.Fatalf("expected sdk.Error, got %T: %v", err, err)
+	}
+	if se.Code != "PARAM_INVALID" {
+		t.Errorf("expected code PARAM_INVALID, got %q (%v)", se.Code, err)
+	}
+	// 参数校验发生在插件层，但应短路：远端不应观察到任何连接。
+	if got := fs.Conns.Load(); got != 0 {
+		t.Errorf("PARAM_INVALID should short-circuit before dial; got %d conns", got)
 	}
 }
