@@ -1,4 +1,4 @@
-go 1.22
+go 1.23.0
 
 // MOW Monorepo workspace
 // 一次开发多个 module，避免 replace 指令扩散

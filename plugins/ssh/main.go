@@ -49,6 +49,10 @@ func (p *SSHPlugin) Commands() []sdk.CommandHandler {
 	return []sdk.CommandHandler{
 		&pingCmd{},
 		&execCmd{pool: p.pool, plugin: p},
+		&shellCmd{pool: p.pool, plugin: p},
+		&sftpListCmd{pool: p.pool, plugin: p},
+		&sftpUploadCmd{pool: p.pool, plugin: p},
+		&sftpDownloadCmd{pool: p.pool, plugin: p},
 	}
 }
 
