@@ -47,6 +47,15 @@ func TestMain(m *testing.M) {
 }
 
 func buildPlugin(m *testing.M) (int, error) {
+	// 优先复用外部（CI）预编译好的二进制，避免每个用例组重复编译。
+	if bin := os.Getenv("MOW_SSH_PLUGIN"); bin != "" {
+		if _, err := os.Stat(bin); err != nil {
+			return 0, fmt.Errorf("MOW_SSH_PLUGIN=%s not accessible: %w", bin, err)
+		}
+		pluginBinary = bin
+		return m.Run(), nil
+	}
+
 	dir, err := os.MkdirTemp("", "mow-e2e-*")
 	if err != nil {
 		return 0, err
@@ -218,7 +227,11 @@ func newRig(t *testing.T) *rig {
 		t.Fatalf("connection manager: %v", err)
 	}
 	plugMgr := plugin.NewManager(plugin.Options{Logger: log, DataDir: dataDir})
-	engine := command.New(command.Options{Manager: plugMgr, Logger: log})
+	engine := command.New(command.Options{
+		Manager:  plugMgr,
+		Logger:   log,
+		Resolver: connMgr,
+	})
 
 	lp, err := pluginclient.LoadFromBinary(pluginBinary, nil)
 	if err != nil {
@@ -296,23 +309,20 @@ func generateEd25519KeyPair(t *testing.T) ([]byte, xssh.PublicKey) {
 }
 
 // runExec 通过 Engine 执行一次 ssh.exec，并返回解析后的结果。
+// 走 Engine 的 ResolveConnectionMiddleware，不再手动 Open。
 func (r *rig) runExec(ctx context.Context, t *testing.T, targetID string, params map[string]any, timeout time.Duration) (*execResult, *command.Response, error) {
 	t.Helper()
-	conn, err := r.ConnMgr.Open(ctx, targetID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("open conn: %w", err)
-	}
 	raw, err := json.Marshal(params)
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal params: %w", err)
 	}
 	resp, err := r.Engine.Run(ctx, command.Request{
-		PluginID:   "ssh",
-		CommandID:  "exec",
-		Params:     raw,
-		Connection: conn,
-		Caller:     sdk.Caller{Type: sdk.CallerCLI, User: "test"},
-		Timeout:    timeout,
+		PluginID:  "ssh",
+		CommandID: "exec",
+		Params:    raw,
+		TargetID:  targetID,
+		Caller:    sdk.Caller{Type: sdk.CallerCLI, User: "test"},
+		Timeout:   timeout,
 	})
 	if err != nil {
 		return nil, nil, err

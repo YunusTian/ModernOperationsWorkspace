@@ -34,10 +34,11 @@ import (
 // Engine 是 MOW 唯一的 Command 执行器。
 // 并发安全；一个进程一份即可。
 type Engine struct {
-	pm      *plugin.Manager
-	log     *logger.Logger
-	audit   AuditSink
-	confirm Confirmer
+	pm       *plugin.Manager
+	log      *logger.Logger
+	audit    AuditSink
+	confirm  Confirmer
+	resolver ConnectionResolver
 
 	// middlewares 是一次性 Command 的中间件链。
 	// 顺序：先注册的先执行、后返回。
@@ -58,6 +59,11 @@ type Options struct {
 	// Confirm 供 Dangerous 权限的二次确认；
 	// nil 时使用 DenyConfirmer（一律拒绝，安全默认）。
 	Confirm Confirmer
+
+	// Resolver 把 Request.TargetID 解析为 sdk.Connection；
+	// 一般传入 core/connection.Manager.Open 的适配器。
+	// 若为 nil，仅接受 Request.Connection 直接传入；带 TargetID 但缺 Connection 的请求将报错。
+	Resolver ConnectionResolver
 
 	// ExtraMiddlewares 是用户自定义中间件（追加到内置链之后）。
 	// 常见用途：限流、缓存、追踪、指标。
@@ -83,13 +89,15 @@ func New(opts Options) *Engine {
 	}
 
 	e := &Engine{
-		pm:      opts.Manager,
-		log:     log.WithComponent("command.engine"),
-		audit:   audit,
-		confirm: confirm,
+		pm:       opts.Manager,
+		log:      log.WithComponent("command.engine"),
+		audit:    audit,
+		confirm:  confirm,
+		resolver: opts.Resolver,
 	}
 	e.middlewares = append(e.middlewares,
 		ValidateMiddleware(),
+		ResolveConnectionMiddleware(opts.Resolver),
 		PermissionMiddleware(confirm),
 		AuditMiddleware(audit),
 	)
@@ -160,6 +168,9 @@ func (e *Engine) RunStream(ctx context.Context, req Request, stream sdk.Stream) 
 
 	// 内联校验（复用 Middleware 内的核心函数）
 	if err := validateParams(inv); err != nil {
+		return err
+	}
+	if err := resolveConnection(ctx, e.resolver, inv); err != nil {
 		return err
 	}
 	if err := checkPermission(ctx, e.confirm, inv); err != nil {

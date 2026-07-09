@@ -78,9 +78,10 @@ func loadApp(cfgPath string) (*App, error) {
 	})
 
 	engine := command.New(command.Options{
-		Manager: plugMgr,
-		Logger:  log,
-		Audit:   command.NewLoggerAudit(log),
+		Manager:  plugMgr,
+		Logger:   log,
+		Audit:    command.NewLoggerAudit(log),
+		Resolver: connMgr, // Engine 通过它把 TargetID → sdk.Connection
 		// CLI 场景走 TTY 确认；非交互场景可通过 --yes 走 AllowConfirmer。
 		Confirm: ttyConfirmer{},
 	})

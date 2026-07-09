@@ -21,8 +21,13 @@ type Request struct {
 	// 若为 nil，Engine 会替换为 `{}`。
 	Params json.RawMessage
 
-	// Connection 是已建立的连接（可选）；由上层准备好后传入。
+	// Connection 已经建立好的连接（可选）；由上层准备好后传入。
+	// 若为 nil 且 TargetID 非空，Engine 会通过注入的 ConnectionResolver 解析。
 	Connection *sdk.Connection
+
+	// TargetID 是 Connection Manager 内的 Target 标识（可选）。
+	// 与 Connection 二选一：都提供时以 Connection 为准。
+	TargetID string
 
 	// Caller 记录调用来源。UI / CLI / API / AI / Workflow / Recipe。
 	Caller sdk.Caller

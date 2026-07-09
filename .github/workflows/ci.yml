@@ -1,13 +1,23 @@
 # MOW CI
 #
-# 目标：
-#   - build:  多平台确认所有 module 均可编译
-#   - test:   多平台跑一遍单元测试与 e2e
-#   - race:   Linux 跑 -race（自带 gcc）；Windows 用 mingw；缺失编译器则脚本 skip
+# Jobs:
+#   lint      staticcheck / govet / etc. via golangci-lint (Linux)
+#   test      build + unit-tests + e2e on Linux & Windows
+#   race      -race on all modules (Linux: native gcc; Windows: mingw if available)
+#   gosec     security scan (SAST) on Linux
+#
+# 触发：
+#   - push -> main
+#   - PR
+#   - workflow_dispatch：手动跑单个 job（lint / test / race / gosec / all）
 #
 # 设计说明：
-#   - Go workspace 已在 go.work 声明各 module；CI 里逐个 module 显式 build/test，
-#     避免 workspace 导致的 "package not in main module" 与 lint 噪音。
+#   - Go workspace 已在 go.work 声明各 module；CI 内逐个 module 显式操作，
+#     避免 workspace 根目录 `./...` 不匹配的坑。
+#   - `build-plugin` job 提前把 plugins/ssh 编译为 artifact，e2e job 通过
+#     环境变量 `MOW_SSH_PLUGIN` 复用它，避免每个平台再重复编译。
+#
+# 版本原则：所有 action 固定到已 GA 的 major 版本；避免误用未来 breaking。
 
 name: ci
 
@@ -15,17 +25,60 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Job subset to run"
+        required: false
+        default: "all"
+        type: choice
+        options: ["all", "lint", "test", "race", "gosec"]
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  GO_VERSION: '1.22.x'
+
 jobs:
   # ---------------------------------------------------------------------------
-  # build & unit-test
+  # lint （只在 Linux 上跑一次）
   # ---------------------------------------------------------------------------
-  test:
-    name: test (${{ matrix.os }})
+  lint:
+    name: lint
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.only == 'all' || inputs.only == 'lint' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.61.0
+          args: --config=.golangci.yml
+          # workspace 模式下 action 只能扫一个 working-dir；
+          # 我们用脚本手动跑所有 module。
+          skip-cache: true
+          only-new-issues: false
+          working-directory: core
+
+      - name: lint remaining modules
+        run: bash scripts/lint.sh
+        # 若 golangci-lint 已在 PATH（前一步安装的会在），脚本会真跑；
+        # 否则 SKIP。避免 double-install。
+
+  # ---------------------------------------------------------------------------
+  # 先编译一次 ssh 插件，作为 e2e artifact，节省两平台各一次的 build 成本。
+  # ---------------------------------------------------------------------------
+  build-plugin:
+    name: build-plugin (${{ matrix.os }})
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.only == 'all' || inputs.only == 'test' || inputs.only == 'race' }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -36,7 +89,48 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22.x'
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build plugins/ssh
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd plugins/ssh
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            go build -o ../../ssh-plugin.exe .
+          else
+            go build -o ../../ssh-plugin .
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssh-plugin-${{ runner.os }}
+          path: |
+            ssh-plugin
+            ssh-plugin.exe
+          if-no-files-found: ignore
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # test：build + unit + e2e
+  # ---------------------------------------------------------------------------
+  test:
+    name: test (${{ matrix.os }})
+    needs: build-plugin
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.only == 'all' || inputs.only == 'test' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Show env
@@ -53,34 +147,44 @@ jobs:
             (cd "$m" && go build ./...)
           done
 
-      - name: Vet all modules
+      - name: Vet
         shell: bash
         run: |
           set -euo pipefail
           for m in core plugins/ssh sdk tests/e2e; do
-            echo "--- vet $m ---"
             (cd "$m" && go vet ./...)
           done
 
-      - name: Unit tests (core & plugins)
+      - name: Unit tests
         shell: bash
         run: |
           set -euo pipefail
           (cd core && go test -count=1 ./...)
           (cd plugins/ssh && go test -count=1 ./...)
 
-      - name: E2E tests
+      - name: Download prebuilt SSH plugin
+        uses: actions/download-artifact@v4
+        with:
+          name: ssh-plugin-${{ runner.os }}
+          path: ${{ github.workspace }}
+
+      - name: E2E tests (using prebuilt plugin)
         shell: bash
+        env:
+          # tests/e2e 会优先读取 MOW_SSH_PLUGIN，避免每次重编。
+          MOW_SSH_PLUGIN: ${{ github.workspace }}/ssh-plugin${{ runner.os == 'Windows' && '.exe' || '' }}
         run: |
           set -euo pipefail
-          cd tests/e2e
-          go test -count=1 ./...
+          chmod +x "$MOW_SSH_PLUGIN" || true
+          (cd tests/e2e && go test -count=1 ./...)
 
   # ---------------------------------------------------------------------------
-  # race detector（Linux 自带 gcc；Windows 装 mingw）
+  # race：CGO 必要
   # ---------------------------------------------------------------------------
   race:
     name: race (${{ matrix.os }})
+    needs: build-plugin
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.only == 'all' || inputs.only == 'race' }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -88,21 +192,17 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22.x'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      # Windows 需要 C 编译器；GitHub-hosted windows-latest 自带 mingw-w64
-      # （位于 C:\ProgramData\Chocolatey\bin），但为稳妥起见显式确认。
       - name: Ensure C compiler (windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
             choco install -y mingw --no-progress
-            $env:PATH = "C:\ProgramData\mingw64\mingw64\bin;$env:PATH"
           }
           gcc --version
 
@@ -114,3 +214,24 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: .\scripts\race.ps1
+
+  # ---------------------------------------------------------------------------
+  # gosec：安全静态扫描（Linux）
+  # ---------------------------------------------------------------------------
+  gosec:
+    name: gosec
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.only == 'all' || inputs.only == 'gosec' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: gosec
+        uses: securego/gosec@v2.21.4
+        with:
+          # -exclude-dir 与 -no-fail 分行传，避免 shell 转义问题。
+          # G402: InsecureIgnoreHostKey 会在 v0.1 缺省触发；单独在 config 关掉。
+          args: -conf .gosec.json ./...

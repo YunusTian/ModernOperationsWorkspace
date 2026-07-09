@@ -87,17 +87,10 @@ func runRun(h *appHolder, o *runOpts, fq string, rest []string) error {
 		PluginID:  pluginID,
 		CommandID: cmdID,
 		Params:    params,
+		TargetID:  o.Target,
 		Caller:    sdk.Caller{Type: sdk.CallerCLI, User: currentUser()},
 		Timeout:   o.Timeout,
 		Confirmed: o.Confirmed,
-	}
-
-	if o.Target != "" {
-		conn, err := app.ConnMgr.Open(ctx, o.Target)
-		if err != nil {
-			return fmt.Errorf("open target %q: %w", o.Target, err)
-		}
-		req.Connection = conn
 	}
 
 	resp, err := app.Engine.Run(ctx, req)

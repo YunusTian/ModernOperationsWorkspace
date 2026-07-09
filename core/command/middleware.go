@@ -63,6 +63,65 @@ func validateParams(inv *Invocation) error {
 }
 
 // -----------------------------------------------------------------------------
+// ResolveConnectionMiddleware
+// -----------------------------------------------------------------------------
+
+// ConnectionResolver 把 Request.TargetID 变成 sdk.Connection。
+// 由 core/connection.Manager 提供 Open 方法的适配器实现。
+type ConnectionResolver interface {
+	Open(ctx context.Context, targetID string) (*sdk.Connection, error)
+}
+
+// ResolverFunc 让普通函数直接充当 ConnectionResolver。
+type ResolverFunc func(ctx context.Context, targetID string) (*sdk.Connection, error)
+
+// Open 实现 ConnectionResolver。
+func (f ResolverFunc) Open(ctx context.Context, id string) (*sdk.Connection, error) {
+	return f(ctx, id)
+}
+
+// ResolveConnectionMiddleware 在权限与审计之前把 TargetID 解析为 Connection。
+//
+// 规则：
+//   - Request.Connection 已有 → 直接放行
+//   - Command 未声明 ConnectionType → 跳过（无需连接）
+//   - 声明了 ConnectionType 但 TargetID 与 Connection 都为空 → 报 CONNECTION_REQUIRED
+//   - 有 TargetID 但 Resolver 为 nil → 报 RESOLVER_MISSING
+//   - Resolver 成功返回 → 写回 inv.Request.Connection
+func ResolveConnectionMiddleware(r ConnectionResolver) Middleware {
+	return func(next HandlerFunc) HandlerFunc {
+		return func(ctx context.Context, inv *Invocation) (*Response, error) {
+			if err := resolveConnection(ctx, r, inv); err != nil {
+				return nil, err
+			}
+			return next(ctx, inv)
+		}
+	}
+}
+
+func resolveConnection(ctx context.Context, r ConnectionResolver, inv *Invocation) error {
+	if inv.Request.Connection != nil {
+		return nil
+	}
+	if inv.Spec.ConnectionType == "" {
+		return nil
+	}
+	if inv.Request.TargetID == "" {
+		return sdk.ErrConnectionRequired
+	}
+	if r == nil {
+		return sdk.NewError("RESOLVER_MISSING",
+			"engine has no ConnectionResolver but request carries TargetID", nil)
+	}
+	conn, err := r.Open(ctx, inv.Request.TargetID)
+	if err != nil {
+		return sdk.NewError("CONNECTION_OPEN_FAILED", err.Error(), err)
+	}
+	inv.Request.Connection = conn
+	return nil
+}
+
+// -----------------------------------------------------------------------------
 // PermissionMiddleware
 // -----------------------------------------------------------------------------
 

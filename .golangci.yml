@@ -1,0 +1,57 @@
+# golangci-lint 配置（v1.60+）
+#
+# 原则：
+#   - 默认启用信噪比高的 linter，避免噪音
+#   - 对测试文件适度放宽（允许 t.Helper 里的 os.Exit / print）
+#   - 生成代码目录（sdk/proto）整体排除
+run:
+  timeout: 3m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+    - bodyclose
+    - unconvert
+    - unparam
+
+linters-settings:
+  errcheck:
+    # 允许显式忽略 defer Close() / Write() 等返回值（普遍模式）。
+    exclude-functions:
+      - (io.Closer).Close
+      - (net.Conn).Close
+      - (*os.File).Close
+      - fmt.Fprintln
+      - fmt.Fprintf
+      - fmt.Fprint
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment # 结构体对齐建议噪音大
+      - shadow         # 常用的 err shadow 属正常模式
+
+issues:
+  exclude-dirs:
+    - sdk/proto      # protoc 生成
+  exclude-rules:
+    # 测试代码：不追究 unparam 与 unused（helper 允许保留）
+    - path: _test\.go
+      linters:
+        - unparam
+        - unused
+    # scripts 下的一次性工具（带 //go:build ignore）：不参与 lint
+    - path: scripts/
+      linters:
+        - unused
+        - errcheck
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -1,0 +1,13 @@
+{
+  "exclude-dir": ["sdk/proto", "scripts"],
+  "exclude": [
+    "G106",
+    "G402",
+    "G404",
+    "G304"
+  ],
+  "audit": true,
+  "nosec": false,
+  "severity": "low",
+  "confidence": "low"
+}
