@@ -1,0 +1,11 @@
+go 1.22
+
+// MOW Monorepo workspace
+// 一次开发多个 module，避免 replace 指令扩散
+use (
+	./core
+	./sdk
+	./apps/cli
+	./apps/desktop
+	./plugins/ssh
+)
