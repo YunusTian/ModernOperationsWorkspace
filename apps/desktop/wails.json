@@ -7,7 +7,9 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "wailsjsdir": "./frontend/src",
-  "prebuildhooks": "cmd /c \"if exist frontend\\src\\wailsjs rmdir /s /q frontend\\src\\wailsjs\"",
+  "prebuildhooks": {
+    "*": "cmd /c \"if exist frontend\\src\\wailsjs rmdir /s /q frontend\\src\\wailsjs\""
+  },
   "author": {
     "name": "MOW"
   }

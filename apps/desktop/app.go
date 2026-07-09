@@ -143,7 +143,17 @@ func (a *App) ensurePlugin(ctx context.Context, id string) error {
 	}
 	a.loadedMu.Unlock()
 
-	if e, ok := a.plugMgr.Get(id); ok && e.State == plugin.StateEnabled {
+	// 若已在 PluginManager 中注册（任意状态），只需确保启用
+	if e, ok := a.plugMgr.Get(id); ok {
+		if e.State != plugin.StateEnabled {
+			pc := a.cfg.Plugins[id]
+			if err := a.plugMgr.Enable(ctx, id, sdk.InitRequest{
+				Settings: pc.Settings,
+				DataDir:  filepath.Join(a.cfg.App.DataDir, "plugin-data"),
+			}); err != nil {
+				return fmt.Errorf("enable plugin %q: %w", id, err)
+			}
+		}
 		a.loadedMu.Lock()
 		a.enabled[id] = true
 		a.loadedMu.Unlock()
@@ -158,10 +168,27 @@ func (a *App) ensurePlugin(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("load plugin %q: %w", id, err)
 	}
+
 	if err := a.plugMgr.Register(lp.Plugin); err != nil {
 		lp.Close()
+		// 并发调用可能已抢先注册，降级处理
+		if e, ok2 := a.plugMgr.Get(id); ok2 {
+			if e.State != plugin.StateEnabled {
+				if err2 := a.plugMgr.Enable(ctx, id, sdk.InitRequest{
+					Settings: a.cfg.Plugins[id].Settings,
+					DataDir:  filepath.Join(a.cfg.App.DataDir, "plugin-data"),
+				}); err2 != nil {
+					return fmt.Errorf("enable plugin %q: %w", id, err2)
+				}
+			}
+			a.loadedMu.Lock()
+			a.enabled[id] = true
+			a.loadedMu.Unlock()
+			return nil
+		}
 		return fmt.Errorf("register plugin %q: %w", id, err)
 	}
+
 	pc := a.cfg.Plugins[id]
 	if err := a.plugMgr.Enable(ctx, id, sdk.InitRequest{
 		Settings: pc.Settings,
