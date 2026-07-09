@@ -1,0 +1,116 @@
+# MOW CI
+#
+# 目标：
+#   - build:  多平台确认所有 module 均可编译
+#   - test:   多平台跑一遍单元测试与 e2e
+#   - race:   Linux 跑 -race（自带 gcc）；Windows 用 mingw；缺失编译器则脚本 skip
+#
+# 设计说明：
+#   - Go workspace 已在 go.work 声明各 module；CI 里逐个 module 显式 build/test，
+#     避免 workspace 导致的 "package not in main module" 与 lint 噪音。
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # build & unit-test
+  # ---------------------------------------------------------------------------
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache: true
+
+      - name: Show env
+        run: |
+          go version
+          go env GOOS GOARCH CGO_ENABLED
+
+      - name: Build all modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          for m in core apps/cli apps/desktop plugins/ssh sdk tests/e2e; do
+            echo "--- build $m ---"
+            (cd "$m" && go build ./...)
+          done
+
+      - name: Vet all modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          for m in core plugins/ssh sdk tests/e2e; do
+            echo "--- vet $m ---"
+            (cd "$m" && go vet ./...)
+          done
+
+      - name: Unit tests (core & plugins)
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd core && go test -count=1 ./...)
+          (cd plugins/ssh && go test -count=1 ./...)
+
+      - name: E2E tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd tests/e2e
+          go test -count=1 ./...
+
+  # ---------------------------------------------------------------------------
+  # race detector（Linux 自带 gcc；Windows 装 mingw）
+  # ---------------------------------------------------------------------------
+  race:
+    name: race (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache: true
+
+      # Windows 需要 C 编译器；GitHub-hosted windows-latest 自带 mingw-w64
+      # （位于 C:\ProgramData\Chocolatey\bin），但为稳妥起见显式确认。
+      - name: Ensure C compiler (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
+            choco install -y mingw --no-progress
+            $env:PATH = "C:\ProgramData\mingw64\mingw64\bin;$env:PATH"
+          }
+          gcc --version
+
+      - name: Race (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: bash scripts/race.sh
+
+      - name: Race (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\scripts\race.ps1
