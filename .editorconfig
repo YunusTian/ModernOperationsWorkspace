@@ -1,0 +1,30 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Go 官方规范：tab 缩进
+[*.go]
+indent_style = tab
+indent_size = 4
+
+# Makefile 必须 tab
+[Makefile]
+indent_style = tab
+
+# Windows 批处理
+[*.{cmd,bat,ps1}]
+end_of_line = crlf
+
+# Markdown 保留行尾空格（换行语义）
+[*.md]
+trim_trailing_whitespace = false
+
+# Proto / YAML / JSON
+[*.{proto,yaml,yml,json,toml}]
+indent_size = 2
