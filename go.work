@@ -8,4 +8,5 @@ use (
 	./core
 	./plugins/ssh
 	./sdk
+	./tests/e2e
 )
