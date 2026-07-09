@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/bindings.ts","./src/main.tsx","./src/pages/sftppage.tsx","./src/pages/targetspage.tsx","./src/pages/terminalpage.tsx","./src/wailsjs/go/models.ts","./src/wailsjs/go/main/app.d.ts","./src/wailsjs/runtime/runtime.d.ts"],"version":"5.9.3"}
