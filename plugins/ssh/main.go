@@ -1,21 +1,29 @@
-// Command mow-plugin-ssh 是 MOW 的官方 SSH 插件。
-// v0.1 只提供一个 stub Command: ssh.ping，用于验证 grpcbridge 端到端可通。
-// 真正的 ssh.exec / ssh.upload / ssh.download 将在 Connection Manager 就绪后实现。
+// Package main 实现 mow-plugin-ssh —— 官方 SSH 插件。
+//
+// v0.1 交付：
+//   - SSH 会话池（*ssh.Client 复用 + 引用计数 + 空闲 GC）
+//   - ssh.exec：真正的远端命令执行（一次性、非交互）
+//   - ssh.ping：保留，供 grpcbridge 端到端 sanity check
+//
+// 底层协议：golang.org/x/crypto/ssh
+// 凭据来源：sdk.Connection.Credentials （由 core/connection.Manager 下发）
 package main
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/mow/mow/sdk"
 	"github.com/mow/mow/sdk/pluginserve"
 )
 
-// -----------------------------------------------------------------------------
-// Plugin
-// -----------------------------------------------------------------------------
+// SSHPlugin 是 MOW 官方 SSH 插件。
+type SSHPlugin struct {
+	pool *SessionPool
+}
 
-type SSHPlugin struct{}
+func newSSHPlugin() *SSHPlugin {
+	return &SSHPlugin{pool: NewSessionPool(SessionPoolOptions{})}
+}
 
 func (p *SSHPlugin) Metadata() sdk.Metadata {
 	return sdk.Metadata{
@@ -23,44 +31,22 @@ func (p *SSHPlugin) Metadata() sdk.Metadata {
 		Name:            "SSH",
 		Version:         "0.1.0",
 		Author:          "mow",
-		Description:     "SSH connection & command execution (v0.1 stub)",
+		Description:     "SSH connection pool + command execution",
 		CoreVersion:     ">=0.1.0,<0.2.0",
 		ConnectionTypes: []string{"ssh"},
 	}
 }
 
-func (p *SSHPlugin) Init(context.Context, sdk.InitRequest) error   { return nil }
-func (p *SSHPlugin) Shutdown(context.Context) error                { return nil }
-func (p *SSHPlugin) HealthCheck(context.Context) sdk.HealthStatus  { return sdk.StatusHealthy }
-func (p *SSHPlugin) Commands() []sdk.CommandHandler                { return []sdk.CommandHandler{&pingCmd{}} }
-
-// -----------------------------------------------------------------------------
-// ssh.ping —— 端到端验证用
-// -----------------------------------------------------------------------------
-
-type pingCmd struct{}
-
-func (c *pingCmd) Spec() sdk.CommandSpec {
-	return sdk.CommandSpec{
-		ID:          "ping",
-		Description: "returns pong; used for grpcbridge sanity check",
-		Permission:  sdk.PermRead,
+func (p *SSHPlugin) Init(ctx context.Context, req sdk.InitRequest) error { return nil }
+func (p *SSHPlugin) Shutdown(ctx context.Context) error                  { p.pool.Close(); return nil }
+func (p *SSHPlugin) HealthCheck(ctx context.Context) sdk.HealthStatus    { return sdk.StatusHealthy }
+func (p *SSHPlugin) Commands() []sdk.CommandHandler {
+	return []sdk.CommandHandler{
+		&pingCmd{},
+		&execCmd{pool: p.pool},
 	}
 }
 
-func (c *pingCmd) Execute(ctx context.Context, req *sdk.ExecuteRequest) (*sdk.ExecuteResponse, error) {
-	data, _ := json.Marshal(map[string]string{"pong": "ok"})
-	return &sdk.ExecuteResponse{Data: data}, nil
-}
-
-func (c *pingCmd) ExecuteStream(ctx context.Context, s sdk.Stream) error {
-	return sdk.ErrNotSupported
-}
-
-// -----------------------------------------------------------------------------
-// Entry
-// -----------------------------------------------------------------------------
-
 func main() {
-	pluginserve.Serve(&SSHPlugin{})
+	pluginserve.Serve(newSSHPlugin())
 }
