@@ -1,0 +1,14 @@
+version: v2
+
+plugins:
+  # 生成 Go 结构体
+  - remote: buf.build/protocolbuffers/go
+    out: .
+    opt:
+      - paths=source_relative
+
+  # 生成 gRPC Server / Client
+  - remote: buf.build/grpc/go
+    out: .
+    opt:
+      - paths=source_relative

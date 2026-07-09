@@ -1,0 +1,330 @@
+// MOW Plugin gRPC 接口定义
+//
+// 本文件定义 Core 与 Plugin 之间通信的所有消息与服务。
+// - 语言无关：可用于生成 Go / Rust / Python / Node 客户端与服务端
+// - 版本演进：新增字段只能追加，禁止修改已有字段编号
+// - 状态：Draft v0.1，与 docs/plugin-system.md 与 docs/command-engine.md 对齐
+syntax = "proto3";
+
+package mow.plugin.v1;
+
+option go_package = "github.com/mow/mow/sdk/proto;pluginpb";
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+
+// =============================================================================
+//  Plugin 服务定义
+// =============================================================================
+
+// Plugin 是每个插件必须实现的核心服务。
+// 由 hashicorp/go-plugin 以子进程方式加载后，Core 通过 gRPC 调用本服务。
+service Plugin {
+  // Metadata 返回插件元信息（id / name / version / commands / recipes / permissions）。
+  // Core 在 Load 阶段调用一次，用于注册与权限校验。
+  rpc Metadata(MetadataRequest) returns (MetadataResponse);
+
+  // Init 在插件启用（Enable）时调用，Core 传入用户配置。
+  // 插件应在此完成一次性初始化（例如建立连接池、加载证书）。
+  rpc Init(InitRequest) returns (InitResponse);
+
+  // Shutdown 在插件停用（Disable）或卸载（Unload）时调用。
+  // 插件应在此关闭资源；不应阻塞超过 30 秒。
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+
+  // HealthCheck 供 Core 定期探活；插件应快速返回。
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+
+  // Execute 执行一次 Command（同步 / 一次性返回）。
+  // 若 Command 是流式，请使用 ExecuteStream。
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+
+  // ExecuteStream 执行一次流式 Command（如 Terminal / Log 跟随）。
+  // 客户端与服务端均可发送多条消息，直到任一方关闭流。
+  rpc ExecuteStream(stream ExecuteStreamMessage) returns (stream ExecuteStreamMessage);
+}
+
+// =============================================================================
+//  Metadata
+// =============================================================================
+
+message MetadataRequest {}
+
+message MetadataResponse {
+  // 插件基础信息
+  PluginMetadata metadata = 1;
+  // 插件提供的所有 Command 定义
+  repeated CommandDefinition commands = 2;
+  // 插件提供的所有 Recipe 定义（可选）
+  repeated RecipeDefinition recipes = 3;
+  // 插件提供的所有 Workflow 定义（可选）
+  repeated WorkflowDefinition workflows = 4;
+  // 声明的连接类型（例：ssh / docker / http）
+  repeated string connection_types = 5;
+}
+
+message PluginMetadata {
+  // 唯一标识，例："ssh"、"docker"、"pve"
+  string id = 1;
+  // 展示名，例："SSH"
+  string name = 2;
+  // 语义化版本，例："0.1.0"
+  string version = 3;
+  string author = 4;
+  string description = 5;
+  string homepage = 6;
+  string license = 7;
+  // 依赖的 Core 版本（语义化范围，例：">=0.1.0,<0.2.0"）
+  string core_version = 8;
+  // 依赖的其他 Plugin ID
+  repeated string plugin_dependencies = 9;
+}
+
+// =============================================================================
+//  Command / Recipe / Workflow 定义
+// =============================================================================
+
+// Command 的权限等级，与 docs/permission.md 对齐。
+enum Permission {
+  PERMISSION_UNSPECIFIED = 0;
+  PERMISSION_READ = 1;       // 只读
+  PERMISSION_WRITE = 2;      // 写文件 / 修改配置
+  PERMISSION_EXECUTE = 3;    // 执行命令
+  PERMISSION_DANGEROUS = 4;  // 不可逆或高影响，必须二次确认
+}
+
+message CommandDefinition {
+  // Plugin 内部的 Command ID（例："exec"、"upload"）
+  // 对外全限定 ID 由 Core 拼接为 "{plugin_id}.{command_id}"
+  string id = 1;
+  string description = 2;
+  Permission permission = 3;
+
+  // 是否为流式 Command（决定客户端应走 Execute 还是 ExecuteStream）
+  bool streaming = 4;
+
+  // 输入 / 输出 JSON Schema（字符串形式）
+  string input_schema = 5;
+  string output_schema = 6;
+
+  // 是否需要一个已建立的 Connection；为空表示不需要
+  string connection_type = 7;
+
+  // 建议超时；调用方可覆盖
+  google.protobuf.Duration default_timeout = 8;
+
+  // 是否幂等（AI / Workflow 重试策略参考）
+  bool idempotent = 9;
+
+  // 标签，用于 Marketplace 检索与 UI 分类
+  repeated string tags = 10;
+}
+
+message RecipeDefinition {
+  string id = 1;
+  string description = 2;
+  Permission permission = 3;
+  // Recipe 内部由若干 Command 组成，定义细节由 Core 侧的 YAML 解析生成
+  // 此处仅暴露元信息供注册与展示
+  repeated string command_ids = 4;
+  repeated string tags = 5;
+}
+
+message WorkflowDefinition {
+  string id = 1;
+  string description = 2;
+  Permission permission = 3;
+  repeated string tags = 4;
+}
+
+// =============================================================================
+//  生命周期
+// =============================================================================
+
+message InitRequest {
+  // 用户为该 Plugin 提供的配置（来自 config 文件的对应 section）
+  google.protobuf.Struct settings = 1;
+  // Core 版本，插件可据此启用兼容分支
+  string core_version = 2;
+  // 数据目录（插件可持久化数据）
+  string data_dir = 3;
+}
+
+message InitResponse {
+  // 若初始化失败，填充 error
+  Error error = 1;
+}
+
+message ShutdownRequest {}
+message ShutdownResponse {}
+
+message HealthCheckRequest {}
+
+enum HealthStatus {
+  HEALTH_STATUS_UNSPECIFIED = 0;
+  HEALTH_STATUS_HEALTHY = 1;
+  HEALTH_STATUS_DEGRADED = 2;
+  HEALTH_STATUS_UNHEALTHY = 3;
+}
+
+message HealthCheckResponse {
+  HealthStatus status = 1;
+  string message = 2;
+}
+
+// =============================================================================
+//  Execute（一次性）
+// =============================================================================
+
+message ExecuteRequest {
+  // 全局唯一执行标识（由 Core 生成，ULID / UUIDv7）
+  string audit_id = 1;
+
+  // Plugin 内部 Command ID
+  string command_id = 2;
+
+  // Command 参数（对应 CommandDefinition.input_schema）
+  google.protobuf.Struct params = 3;
+
+  // 可选：已建立的连接 ID，由 Core 分配
+  // Plugin 通过 ConnectionHandle 服务反查（未来扩展），
+  // v0.1 由 Core 侧组合，直接把连接凭据以只读方式传给 Plugin
+  string connection_id = 4;
+
+  // 调用者身份（用于审计）
+  Caller caller = 5;
+
+  // 覆盖默认超时（0 表示使用 CommandDefinition.default_timeout）
+  google.protobuf.Duration timeout = 6;
+
+  // 若 Command 权限为 DANGEROUS，此字段必须为 true
+  // Core 会在调用前完成二次确认
+  bool confirmed = 7;
+}
+
+message ExecuteResponse {
+  // 执行是否成功；等价于 error == nil
+  bool ok = 1;
+  // 结构化输出（对应 CommandDefinition.output_schema）
+  google.protobuf.Struct data = 2;
+  // 错误信息（若失败）
+  Error error = 3;
+  // Plugin 侧耗时
+  google.protobuf.Duration duration = 4;
+  // Plugin 附加的可观测字段（打点、Trace ID 等）
+  map<string, string> attributes = 5;
+}
+
+// =============================================================================
+//  ExecuteStream（双向流式）
+// =============================================================================
+
+// ExecuteStreamMessage 是 Execute 流式协议的载体。
+// - 首条消息由 Client 发送 StartExecute，声明本次调用
+// - 后续 Client 侧可发送 Stdin / Signal / Close
+// - Server 侧持续发送 Chunk（stdout/stderr/结构化增量），并以 Final 结束
+message ExecuteStreamMessage {
+  oneof payload {
+    // Client → Server：启动执行
+    ExecuteRequest start = 1;
+    // Client → Server：向 Command 提供标准输入（例如 SSH 交互）
+    Stdin stdin = 2;
+    // Client → Server：发送信号（如取消 / SIGINT / SIGTERM）
+    Signal signal = 3;
+    // Client → Server：关闭输入端
+    Close close = 4;
+
+    // Server → Client：一段增量输出
+    Chunk chunk = 5;
+    // Server → Client：结束帧
+    Final final = 6;
+  }
+}
+
+message Stdin {
+  bytes data = 1;
+}
+
+enum SignalType {
+  SIGNAL_TYPE_UNSPECIFIED = 0;
+  SIGNAL_TYPE_CANCEL = 1;   // 取消，等价于 context cancel
+  SIGNAL_TYPE_INT = 2;      // SIGINT
+  SIGNAL_TYPE_TERM = 3;     // SIGTERM
+  SIGNAL_TYPE_KILL = 4;     // SIGKILL
+  SIGNAL_TYPE_WINCH = 5;    // 终端尺寸变化（stdout_data 可承载新尺寸）
+}
+
+message Signal {
+  SignalType type = 1;
+  // 可选负载（例：WINCH 时的 rows/cols）
+  google.protobuf.Struct payload = 2;
+}
+
+message Close {}
+
+enum ChunkStream {
+  CHUNK_STREAM_UNSPECIFIED = 0;
+  CHUNK_STREAM_STDOUT = 1;
+  CHUNK_STREAM_STDERR = 2;
+  CHUNK_STREAM_STRUCTURED = 3;  // 结构化事件流（例如进度、事件）
+}
+
+message Chunk {
+  ChunkStream stream = 1;
+  // 原始字节（stdout/stderr）
+  bytes data = 2;
+  // 结构化事件（仅当 stream = STRUCTURED 时）
+  google.protobuf.Struct event = 3;
+  // 序号，用于客户端排序 / 断点续传（可选）
+  uint64 seq = 4;
+  google.protobuf.Timestamp ts = 5;
+}
+
+message Final {
+  bool ok = 1;
+  // 最终结构化结果（可选，例如统计信息）
+  google.protobuf.Struct data = 2;
+  Error error = 3;
+  // 进程退出码（若 Command 是外部进程包装）
+  int32 exit_code = 4;
+  google.protobuf.Duration duration = 5;
+}
+
+// =============================================================================
+//  公共类型
+// =============================================================================
+
+// 调用来源，用于审计与权限判定
+message Caller {
+  // 触发来源
+  CallerType type = 1;
+  // 用户标识（本地用户名 / RBAC 主体）
+  string user = 2;
+  // 可选：AI 会话 ID（当 type = AI）
+  string session_id = 3;
+  // 可选：上游 auditId（追溯长链路调用）
+  string parent_audit_id = 4;
+}
+
+enum CallerType {
+  CALLER_TYPE_UNSPECIFIED = 0;
+  CALLER_TYPE_CLI = 1;
+  CALLER_TYPE_DESKTOP = 2;
+  CALLER_TYPE_API = 3;
+  CALLER_TYPE_AI = 4;
+  CALLER_TYPE_WORKFLOW = 5;
+  CALLER_TYPE_RECIPE = 6;
+}
+
+// 统一错误结构（对应 CommandResult.error）
+message Error {
+  // 稳定错误码，例："SSH_AUTH_FAILED"、"PARAM_INVALID"
+  string code = 1;
+  // 用户可读消息
+  string message = 2;
+  // 结构化详情（栈、字段、Provider 原始错误）
+  google.protobuf.Struct details = 3;
+  // 是否可重试（供 Workflow 决策）
+  bool retryable = 4;
+}

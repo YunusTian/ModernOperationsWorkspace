@@ -1,0 +1,15 @@
+version: v2
+
+modules:
+  - path: .
+
+lint:
+  use:
+    - STANDARD
+  except:
+    # 允许 package 与目录不严格一致（我们用 mow.plugin.v1 但目录是 proto/）
+    - PACKAGE_DIRECTORY_MATCH
+
+breaking:
+  use:
+    - FILE
