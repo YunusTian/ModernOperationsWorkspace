@@ -51,6 +51,7 @@ func newRootCmd() *cobra.Command {
 		newTargetCmd(appHolder),
 		newRunCmd(appHolder),
 		newRecipeCmd(appHolder),
+		newSSHCmd(appHolder),
 	)
 	return root
 }
