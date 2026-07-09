@@ -26,6 +26,7 @@ type serverStream struct {
 	start  *pb.ExecuteRequest
 
 	rawParams json.RawMessage
+	conn      *sdk.Connection
 
 	// incoming 提供给 Handler 消费入站事件（Stdin / Signal）
 	incoming chan sdk.Incoming
@@ -36,12 +37,13 @@ type serverStream struct {
 	finished atomic.Bool
 }
 
-func newServerStream(ctx context.Context, s pb.Plugin_ExecuteStreamServer, start *pb.ExecuteRequest, params json.RawMessage) *serverStream {
+func newServerStream(ctx context.Context, s pb.Plugin_ExecuteStreamServer, start *pb.ExecuteRequest, params json.RawMessage, conn *sdk.Connection) *serverStream {
 	return &serverStream{
 		ctx:       ctx,
 		stream:    s,
 		start:     start,
 		rawParams: params,
+		conn:      conn,
 		incoming:  make(chan sdk.Incoming, 16),
 	}
 }
@@ -104,8 +106,8 @@ func (s *serverStream) Params(dst any) error {
 	return json.Unmarshal(s.rawParams, dst)
 }
 
-// Connection：v0.1 暂不通过桥接传递，返回 nil。
-func (s *serverStream) Connection() *sdk.Connection { return nil }
+// Connection 返回 Core 通过信封字段透传过来的连接（可为 nil）。
+func (s *serverStream) Connection() *sdk.Connection { return s.conn }
 
 func (s *serverStream) Recv() <-chan sdk.Incoming { return s.incoming }
 

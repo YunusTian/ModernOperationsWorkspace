@@ -139,7 +139,10 @@ type remoteCommand struct {
 func (r *remoteCommand) Spec() sdk.CommandSpec { return r.spec }
 
 func (r *remoteCommand) Execute(ctx context.Context, req *sdk.ExecuteRequest) (*sdk.ExecuteResponse, error) {
-	params, _ := jsonToStruct(req.Params)
+	params, err := paramsWithConnection(req.Params, req.Connection)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := r.cc.Execute(ctx, &pb.ExecuteRequest{
 		AuditId:      req.AuditID,
 		CommandId:    r.spec.ID,
@@ -175,15 +178,19 @@ func (r *remoteCommand) ExecuteStream(ctx context.Context, s sdk.Stream) error {
 	if err != nil {
 		return err
 	}
-	params, _ := jsonToStruct(s.RawParams())
+	params, err := paramsWithConnection(s.RawParams(), s.Connection())
+	if err != nil {
+		return err
+	}
 	if err := stream.Send(&pb.ExecuteStreamMessage{
 		Payload: &pb.ExecuteStreamMessage_Start{
 			Start: &pb.ExecuteRequest{
-				AuditId:   s.AuditID(),
-				CommandId: r.spec.ID,
-				Params:    params,
-				Caller:    callerToProto(s.Caller()),
-				Confirmed: s.Confirmed(),
+				AuditId:      s.AuditID(),
+				CommandId:    r.spec.ID,
+				Params:       params,
+				ConnectionId: connectionIDOf(s.Connection()),
+				Caller:       callerToProto(s.Caller()),
+				Confirmed:    s.Confirmed(),
 			},
 		},
 	}); err != nil {

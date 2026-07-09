@@ -12,6 +12,7 @@
 package grpcbridge
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"time"
 
@@ -287,8 +288,97 @@ func errorFromProto(e *pb.Error) *sdk.Error {
 }
 
 // -----------------------------------------------------------------------------
-// Connection（占位）
+// Connection（信封字段透传）
 // -----------------------------------------------------------------------------
+//
+// v0.1 的 proto 中 ExecuteRequest 只保留了 connection_id 占位、并未承载凭据。
+// 为了让 SSH 这类需要 host / user / credentials 的插件真正跑通，
+// 这里以 params 的保留字段 "_mow_connection" 作为 **信封** 透传整个
+// sdk.Connection（JSON），Server 侧解出并挂到 sdk.ExecuteRequest.Connection。
+//
+// 未来 Connection RFC 落定后，会把这些字段升为 proto 一等公民，
+// 届时删除本信封即可，插件层无感。
 
-// v0.1：Connection 目前不跨越 proto 边界传递；后续 Connection RFC 会补齐。
-// 这里仅保留导入以说明未来会在此处扩展。
+const connectionEnvelopeKey = "_mow_connection"
+
+// paramsWithConnection 将 conn 编码进 params 的信封字段。
+// 若 conn 为 nil，行为等同于 jsonToStruct(params)。
+func paramsWithConnection(params json.RawMessage, conn *sdk.Connection) (*structpb.Struct, error) {
+	var m map[string]any
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &m); err != nil {
+			return nil, err
+		}
+	}
+	if m == nil {
+		m = map[string]any{}
+	}
+	if conn != nil {
+		env := map[string]any{
+			"id":   conn.ID,
+			"type": conn.Type,
+		}
+		if len(conn.Metadata) > 0 {
+			md := make(map[string]any, len(conn.Metadata))
+			for k, v := range conn.Metadata {
+				md[k] = v
+			}
+			env["metadata"] = md
+		}
+		if len(conn.Credentials) > 0 {
+			env["credentials_b64"] = base64.StdEncoding.EncodeToString(conn.Credentials)
+		}
+		m[connectionEnvelopeKey] = env
+	}
+	if len(m) == 0 {
+		return nil, nil
+	}
+	return structpb.NewStruct(m)
+}
+
+// splitConnectionFromParams 从 params 中抽出 Connection，返回清洗后的
+// params JSON 与 *sdk.Connection（若无则为 nil）。
+func splitConnectionFromParams(params *structpb.Struct) (json.RawMessage, *sdk.Connection) {
+	if params == nil {
+		return nil, nil
+	}
+	m := params.AsMap()
+	envAny, ok := m[connectionEnvelopeKey]
+	if !ok {
+		delete(m, connectionEnvelopeKey)
+		b, err := json.Marshal(m)
+		if err != nil {
+			return nil, nil
+		}
+		return b, nil
+	}
+	delete(m, connectionEnvelopeKey)
+
+	env, _ := envAny.(map[string]any)
+	conn := &sdk.Connection{}
+	if v, _ := env["id"].(string); v != "" {
+		conn.ID = v
+	}
+	if v, _ := env["type"].(string); v != "" {
+		conn.Type = v
+	}
+	if md, ok := env["metadata"].(map[string]any); ok {
+		conn.Metadata = map[string]string{}
+		for k, v := range md {
+			if s, ok := v.(string); ok {
+				conn.Metadata[k] = s
+			}
+		}
+	}
+	if s, _ := env["credentials_b64"].(string); s != "" {
+		if raw, err := base64.StdEncoding.DecodeString(s); err == nil {
+			conn.Credentials = raw
+		}
+	}
+
+	b, err := json.Marshal(m)
+	if err != nil {
+		return nil, conn
+	}
+	return b, conn
+}

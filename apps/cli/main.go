@@ -1,63 +1,52 @@
 // Command mow 是 MOW 的命令行入口。
 //
-// v0.1 骨架：
-//   Config → Logger → PluginManager → Command Engine → 打印可用 Command。
-// Cobra 命令树将在后续接入。
+// 目录约定：
+//   ~/.mow/                        默认 DataDir
+//   ~/.mow/config.json             CLI / 全局配置
+//   ~/.mow/connections/targets.json  已注册目标
+//   ~/.mow/keys/master.key         凭据加密主密钥
+//   <PluginsDir>/<id>[.exe]        插件可执行文件
+//
+// 子命令：
+//   mow target add|list|rm         管理 Connection Target
+//   mow run <plugin>.<cmd>         通过 Command Engine 执行
 package main
 
 import (
-	"context"
-	"flag"
 	"fmt"
 	"os"
 
-	"github.com/mow/mow/core/command"
-	"github.com/mow/mow/core/config"
-	"github.com/mow/mow/core/logger"
-	"github.com/mow/mow/core/plugin"
+	"github.com/spf13/cobra"
 )
 
 func main() {
-	var configPath string
-	flag.StringVar(&configPath, "config", "", "path to mow config (JSON); empty = defaults")
-	flag.Parse()
-
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "load config:", err)
+	if err := newRootCmd().Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "mow:", err)
 		os.Exit(1)
 	}
+}
 
-	log := logger.Init(logger.Options{
-		Level:     cfg.Logger.Level,
-		Format:    logger.Format(cfg.Logger.Format),
-		AddSource: cfg.Logger.AddSource,
-	})
-	log.Info("mow starting",
-		"data_dir", cfg.App.DataDir,
-		"plugins_dir", cfg.App.PluginsDir,
+// newRootCmd 构造根命令；所有子命令通过 App 单例访问 Core。
+func newRootCmd() *cobra.Command {
+	var configPath string
+
+	root := &cobra.Command{
+		Use:           "mow",
+		Short:         "Modern Operations Workspace",
+		Long:          "AI is optional. Automation is essential.",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+	root.PersistentFlags().StringVar(&configPath, "config", "",
+		"path to mow config (JSON); empty = defaults")
+
+	// App 是所有子命令共享的运行时依赖。
+	// 每个子命令的 RunE 内按需 Load()，保证 --help 等场景不做任何 IO。
+	appHolder := &appHolder{configPath: &configPath}
+
+	root.AddCommand(
+		newTargetCmd(appHolder),
+		newRunCmd(appHolder),
 	)
-
-	mgr := plugin.NewManager(plugin.Options{
-		Logger:  log,
-		DataDir: cfg.App.DataDir,
-	})
-
-	// v0.1：CLI 场景下危险操作默认拒绝；后续接入 TTY prompt 时替换。
-	engine := command.New(command.Options{
-		Manager: mgr,
-		Logger:  log,
-		Audit:   command.NewLoggerAudit(log),
-		Confirm: command.DenyConfirmer{},
-	})
-
-	ctx := context.Background()
-	log.Info("engine ready",
-		"plugins", mgr.List(),
-	)
-
-	// TODO(cli): 接入 Cobra，注册 command/list/enable/run 等子命令；
-	// 所有子命令最终都调用 engine.Run / engine.RunStream。
-	_ = engine
-	_ = ctx
+	return root
 }

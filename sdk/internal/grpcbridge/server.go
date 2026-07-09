@@ -146,12 +146,14 @@ func (s *server) Execute(ctx context.Context, req *pb.ExecuteRequest) (*pb.Execu
 	}
 
 	start := time.Now()
+	paramsJSON, conn := splitConnectionFromParams(req.GetParams())
 	resp, err := h.Execute(ctx, &sdk.ExecuteRequest{
-		AuditID:   req.GetAuditId(),
-		Params:    structToJSON(req.GetParams()),
-		Caller:    callerFromProto(req.GetCaller()),
-		Timeout:   durFromProto(req.GetTimeout()),
-		Confirmed: req.GetConfirmed(),
+		AuditID:    req.GetAuditId(),
+		Params:     paramsJSON,
+		Connection: conn,
+		Caller:     callerFromProto(req.GetCaller()),
+		Timeout:    durFromProto(req.GetTimeout()),
+		Confirmed:  req.GetConfirmed(),
 	})
 	out := &pb.ExecuteResponse{Duration: durToProto(time.Since(start))}
 	if err != nil {
@@ -196,8 +198,8 @@ func (s *server) ExecuteStream(stream pb.Plugin_ExecuteStreamServer) error {
 		defer cancel()
 	}
 
-	rawParams := structToJSON(start.GetParams())
-	s3 := newServerStream(ctx, stream, start, rawParams)
+	rawParams, conn := splitConnectionFromParams(start.GetParams())
+	s3 := newServerStream(ctx, stream, start, rawParams, conn)
 	go s3.pumpRecv()
 
 	execErr := h.ExecuteStream(ctx, s3)
