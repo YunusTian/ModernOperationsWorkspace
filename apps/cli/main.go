@@ -1,7 +1,8 @@
 // Command mow 是 MOW 的命令行入口。
 //
-// v0.1 骨架：加载配置 → 初始化 Logger → 构造 PluginManager → 列出插件。
-// Cobra 命令树将在 Command Engine 就绪后接入。
+// v0.1 骨架：
+//   Config → Logger → PluginManager → Command Engine → 打印可用 Command。
+// Cobra 命令树将在后续接入。
 package main
 
 import (
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mow/mow/core/command"
 	"github.com/mow/mow/core/config"
 	"github.com/mow/mow/core/logger"
 	"github.com/mow/mow/core/plugin"
@@ -41,9 +43,21 @@ func main() {
 		DataDir: cfg.App.DataDir,
 	})
 
-	// TODO(cli): 接入 Cobra，注册 command/list/enable 等子命令。
-	// 目前占位打印，验证 Core 可运行。
+	// v0.1：CLI 场景下危险操作默认拒绝；后续接入 TTY prompt 时替换。
+	engine := command.New(command.Options{
+		Manager: mgr,
+		Logger:  log,
+		Audit:   command.NewLoggerAudit(log),
+		Confirm: command.DenyConfirmer{},
+	})
+
 	ctx := context.Background()
+	log.Info("engine ready",
+		"plugins", mgr.List(),
+	)
+
+	// TODO(cli): 接入 Cobra，注册 command/list/enable/run 等子命令；
+	// 所有子命令最终都调用 engine.Run / engine.RunStream。
+	_ = engine
 	_ = ctx
-	log.Info("plugin manager ready", "plugins", mgr.List())
 }

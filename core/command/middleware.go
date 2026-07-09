@@ -1,0 +1,235 @@
+package command
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"time"
+
+	"github.com/mow/mow/sdk"
+)
+
+// -----------------------------------------------------------------------------
+// Middleware
+// -----------------------------------------------------------------------------
+
+// HandlerFunc 是 Middleware 内部的最小处理函数签名。
+type HandlerFunc func(ctx context.Context, inv *Invocation) (*Response, error)
+
+// Middleware 是 Command Engine 的横切拦截器。
+// 典型实现：先做前置检查 → 调用 next → 做后置处理。
+type Middleware func(next HandlerFunc) HandlerFunc
+
+// chainMiddlewares 按注册顺序包裹终结点函数，
+// 第一个注册的中间件位于最外层（最先执行）。
+func chainMiddlewares(final HandlerFunc, mws []Middleware) HandlerFunc {
+	h := final
+	for i := len(mws) - 1; i >= 0; i-- {
+		h = mws[i](h)
+	}
+	return h
+}
+
+// -----------------------------------------------------------------------------
+// ValidateMiddleware
+// -----------------------------------------------------------------------------
+
+// ValidateMiddleware 校验 Command 参数是否为合法 JSON。
+// v0.1 仅做"是否可解析为 JSON 对象"的最基本校验；
+// JSON Schema 校验将在后续引入（对齐 CommandSpec.InputSchema）。
+func ValidateMiddleware() Middleware {
+	return func(next HandlerFunc) HandlerFunc {
+		return func(ctx context.Context, inv *Invocation) (*Response, error) {
+			if err := validateParams(inv); err != nil {
+				return nil, err
+			}
+			return next(ctx, inv)
+		}
+	}
+}
+
+func validateParams(inv *Invocation) error {
+	if len(inv.Request.Params) == 0 {
+		return nil
+	}
+	// 仅做基本 JSON 可解析校验（对象或 null）
+	var m any
+	if err := json.Unmarshal(inv.Request.Params, &m); err != nil {
+		return sdk.NewError("PARAM_INVALID",
+			"parameters are not valid JSON", err)
+	}
+	// TODO(v0.2): 若 inv.Spec.InputSchema 非空，执行 JSON Schema 校验
+	return nil
+}
+
+// -----------------------------------------------------------------------------
+// PermissionMiddleware
+// -----------------------------------------------------------------------------
+
+// Confirmer 用于 Dangerous 权限的二次确认。
+// 由上层（UI 弹窗 / CLI TTY prompt / 策略中心）实现。
+type Confirmer interface {
+	// Confirm 询问是否允许执行本次 Dangerous 调用。
+	// 返回 approved = true 表示批准；false 表示拒绝。
+	Confirm(ctx context.Context, req ConfirmationRequest) (approved bool, err error)
+}
+
+// ConfirmationRequest 描述一次待确认调用的上下文。
+type ConfirmationRequest struct {
+	AuditID   string
+	PluginID  string
+	CommandID string
+	Params    json.RawMessage
+	Caller    sdk.Caller
+	// Reason 是可选的执行理由（例如 AI 场景下的规划说明）。
+	Reason string
+}
+
+// DenyConfirmer 是安全默认：一律拒绝。
+// 生产环境应替换为真实实现。
+type DenyConfirmer struct{}
+
+func (DenyConfirmer) Confirm(context.Context, ConfirmationRequest) (bool, error) {
+	return false, sdk.ErrConfirmationRequired
+}
+
+// AllowConfirmer 一律放行，仅用于测试。
+type AllowConfirmer struct{}
+
+func (AllowConfirmer) Confirm(context.Context, ConfirmationRequest) (bool, error) {
+	return true, nil
+}
+
+// PermissionMiddleware 检查 Command 权限：
+//   - PermUnspecified：拒绝
+//   - PermRead / PermWrite / PermExecute：放行
+//   - PermDangerous：若 Request.Confirmed = true 直接放行；否则调用 Confirmer 询问
+//
+// 若 confirm 为 nil，等价于 DenyConfirmer。
+func PermissionMiddleware(confirm Confirmer) Middleware {
+	if confirm == nil {
+		confirm = DenyConfirmer{}
+	}
+	return func(next HandlerFunc) HandlerFunc {
+		return func(ctx context.Context, inv *Invocation) (*Response, error) {
+			if err := checkPermission(ctx, confirm, inv); err != nil {
+				return nil, err
+			}
+			return next(ctx, inv)
+		}
+	}
+}
+
+func checkPermission(ctx context.Context, confirm Confirmer, inv *Invocation) error {
+	switch inv.Spec.Permission {
+	case sdk.PermUnspecified:
+		return sdk.NewError("PERMISSION_UNDECLARED",
+			"command permission is not declared", nil)
+
+	case sdk.PermDangerous:
+		if inv.Request.Confirmed {
+			inv.Confirmed = true
+			return nil
+		}
+		ok, err := confirm.Confirm(ctx, ConfirmationRequest{
+			AuditID:   inv.AuditID,
+			PluginID:  inv.Request.PluginID,
+			CommandID: inv.Request.CommandID,
+			Params:    inv.Request.Params,
+			Caller:    inv.Request.Caller,
+		})
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return sdk.ErrConfirmationRequired
+		}
+		inv.Confirmed = true
+		inv.Request.Confirmed = true
+		return nil
+
+	default:
+		return nil
+	}
+}
+
+// -----------------------------------------------------------------------------
+// AuditMiddleware
+// -----------------------------------------------------------------------------
+
+// AuditRecord 是一次调用的审计快照。
+type AuditRecord struct {
+	AuditID    string
+	PluginID   string
+	CommandID  string
+	Permission sdk.Permission
+	Caller     sdk.Caller
+	Params     json.RawMessage
+	Confirmed  bool
+	Streaming  bool
+	StartedAt  time.Time
+	Duration   time.Duration
+	Err        error
+}
+
+// AuditSink 接收 Engine 产出的审计事件。
+// 实现者需处理：结构化落盘、异步刷写、脱敏、TTL。
+type AuditSink interface {
+	Start(ctx context.Context, rec *AuditRecord)
+	Finish(ctx context.Context, rec *AuditRecord)
+}
+
+// NopAudit 是最小实现：不落盘，只把事件转成 slog 输出。
+// 默认注入的实现即 NopAudit。
+type NopAudit struct{}
+
+func (NopAudit) Start(context.Context, *AuditRecord)  {}
+func (NopAudit) Finish(context.Context, *AuditRecord) {}
+
+// AuditMiddleware 在 Command 执行前后写入 AuditSink。
+// 无论成功 / 失败 / 取消，都会调用 Finish。
+func AuditMiddleware(sink AuditSink) Middleware {
+	if sink == nil {
+		sink = NopAudit{}
+	}
+	return func(next HandlerFunc) HandlerFunc {
+		return func(ctx context.Context, inv *Invocation) (*Response, error) {
+			rec := newAuditRecord(inv)
+			sink.Start(ctx, rec)
+
+			start := time.Now()
+			resp, err := next(ctx, inv)
+			rec.Duration = time.Since(start)
+
+			if err != nil {
+				rec.Err = err
+			}
+			sink.Finish(ctx, rec)
+
+			if err != nil {
+				// 附带 AuditID 便于日志聚合
+				return nil, &InvocationError{AuditID: inv.AuditID, Cause: err}
+			}
+			return resp, nil
+		}
+	}
+}
+
+func newAuditRecord(inv *Invocation) *AuditRecord {
+	return &AuditRecord{
+		AuditID:    inv.AuditID,
+		PluginID:   inv.Request.PluginID,
+		CommandID:  inv.Request.CommandID,
+		Permission: inv.Spec.Permission,
+		Caller:     inv.Request.Caller,
+		Params:     inv.Request.Params,
+		Confirmed:  inv.Request.Confirmed || inv.Confirmed,
+		StartedAt:  time.Now(),
+	}
+}
+
+// IsError returns true when err represents a non-transport-level failure
+// worth escalating (i.e. not a context cancel due to shutdown).
+func IsError(err error) bool {
+	return err != nil && !errors.Is(err, context.Canceled)
+}
