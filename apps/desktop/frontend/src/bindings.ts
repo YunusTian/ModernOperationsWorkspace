@@ -97,7 +97,7 @@ export type WorkflowRunInput = {
 };
 
 export type WorkflowStepEvent = {
-  phase: "start" | "finish" | "error" | "skip";
+  phase: "start" | "finish" | "error" | "skip" | "retry";
   index: number;
   step_id: string;
   kind: "cmd" | "recipe";
@@ -105,6 +105,11 @@ export type WorkflowStepEvent = {
   when?: string;
   duration_ms?: number;
   skipped?: boolean;
+  attempts?: number;
+  // retry-only
+  attempt?: number;
+  max_attempts?: number;
+  next_backoff_ms?: number;
   error_code?: string;
   error_msg?: string;
 };

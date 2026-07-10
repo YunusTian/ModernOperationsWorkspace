@@ -51,6 +51,17 @@ type yamlStep struct {
 	Params  map[string]any `yaml:"params"`
 	Timeout string         `yaml:"timeout"`
 	When    string         `yaml:"when"`
+	Retry   *yamlRetry     `yaml:"retry"`
+}
+
+// yamlRetry 是 retry: { ... } 的原始形态。所有字段均可选。
+//
+// 用字符串接 duration 是为了让 YAML 里写 "500ms" / "2s" 直观；数字则按 Max 处理。
+type yamlRetry struct {
+	Max         int    `yaml:"max"`
+	Backoff     string `yaml:"backoff"`
+	MaxBackoff  string `yaml:"max_backoff"`
+	Exponential bool   `yaml:"exponential"`
 }
 
 // LoadFile 从文件路径加载并解析 Workflow。
@@ -141,6 +152,24 @@ func (y *yamlWorkflow) toWorkflow() (*Workflow, error) {
 					return nil, fmt.Errorf("workflow: step[%d] timeout: %w", i, err)
 				}
 				step.Timeout = d
+			}
+			if ys.Retry != nil {
+				rp := &RetryPolicy{Max: ys.Retry.Max, Exponential: ys.Retry.Exponential}
+				if ys.Retry.Backoff != "" {
+					d, err := time.ParseDuration(ys.Retry.Backoff)
+					if err != nil {
+						return nil, fmt.Errorf("workflow: step[%d] retry.backoff: %w", i, err)
+					}
+					rp.Backoff = d
+				}
+				if ys.Retry.MaxBackoff != "" {
+					d, err := time.ParseDuration(ys.Retry.MaxBackoff)
+					if err != nil {
+						return nil, fmt.Errorf("workflow: step[%d] retry.max_backoff: %w", i, err)
+					}
+					rp.MaxBackoff = d
+				}
+				step.Retry = rp
 			}
 			w.Steps = append(w.Steps, step)
 		}

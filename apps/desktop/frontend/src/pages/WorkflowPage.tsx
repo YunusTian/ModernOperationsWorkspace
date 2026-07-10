@@ -17,8 +17,10 @@ type LogEntry = {
   stepId: string;
   ref: string;
   kind: string;
-  status: "running" | "ok" | "fail" | "skipped";
+  status: "running" | "ok" | "fail" | "skipped" | "retrying";
   when?: string;
+  attempts?: number;
+  retryHint?: string; // 例："attempt 2/3, waiting 500ms — io error"
   durationMs?: number;
   errorCode?: string;
   errorMsg?: string;
@@ -168,6 +170,18 @@ export default function WorkflowPage({ activeTarget }: Props) {
           return next;
         }
         if (idx < 0) return next;
+        if (ev.phase === "retry") {
+          const hint = `attempt ${ev.attempt}/${ev.max_attempts}, retry in ${
+            ev.next_backoff_ms ?? 0
+          }ms${ev.error_msg ? " — " + ev.error_msg : ""}`;
+          next[idx] = {
+            ...next[idx],
+            status: "retrying",
+            attempts: ev.attempt,
+            retryHint: hint,
+          };
+          return next;
+        }
         let status: LogEntry["status"];
         switch (ev.phase) {
           case "finish":
@@ -182,6 +196,8 @@ export default function WorkflowPage({ activeTarget }: Props) {
         next[idx] = {
           ...next[idx],
           status,
+          attempts: ev.attempts ?? next[idx].attempts,
+          retryHint: undefined,
           durationMs: ev.duration_ms,
           errorCode: ev.error_code,
           errorMsg: ev.error_msg,
@@ -318,18 +334,28 @@ export default function WorkflowPage({ activeTarget }: Props) {
                   ? "✓"
                   : e.status === "skipped"
                   ? "⤼"
+                  : e.status === "retrying"
+                  ? "↻"
                   : "✗"}
               </span>
               <span className="wf-step">{e.stepId}</span>
               <span className="wf-ref">
                 ({e.kind}:{e.ref})
               </span>
+              {e.attempts !== undefined && e.attempts > 1 && (
+                <span className="wf-attempts">×{e.attempts}</span>
+              )}
+              {e.status === "retrying" && e.retryHint && (
+                <span className="wf-retry-hint">{e.retryHint}</span>
+              )}
               {e.status === "skipped" && e.when && (
                 <span className="wf-when">when: {e.when}</span>
               )}
-              {e.durationMs !== undefined && e.status !== "skipped" && (
-                <span className="wf-dur">{e.durationMs}ms</span>
-              )}
+              {e.durationMs !== undefined &&
+                e.status !== "skipped" &&
+                e.status !== "retrying" && (
+                  <span className="wf-dur">{e.durationMs}ms</span>
+                )}
               {e.errorCode && (
                 <span className="wf-code">[{e.errorCode}]</span>
               )}

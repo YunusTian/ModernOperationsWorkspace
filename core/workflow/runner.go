@@ -76,6 +76,13 @@ const (
 	// PhaseSkip：Step 因 when 求值为 false 而被跳过，Result 已填充且
 	// OK=true、Skipped=true；Err 为 nil。
 	PhaseSkip StepPhase = "skip"
+	// PhaseRetry：Step 一次执行失败但仍在 retry 预算内即将退避重试。
+	//   - Result 是"该次失败"的中间态（OK=false，ErrorCode/Msg 已填充）
+	//   - Err 是本次的原始错误
+	//   - Attempt / MaxAttempts / NextBackoff 见 StepEvent
+	// 若 backoff 期间 ctx 被取消，随后不会再触发 PhaseError；
+	// runStep 会以最后一次错误直接返回。
+	PhaseRetry StepPhase = "retry"
 )
 
 // StepEvent 是单个 Step 生命周期事件。
@@ -83,8 +90,15 @@ type StepEvent struct {
 	Phase  StepPhase
 	Index  int
 	Step   Step
-	Result *StepResult // Finish / Error 时填充
-	Err    error       // Error 时填充
+	Result *StepResult // Finish / Error / Skip / Retry 时填充
+	Err    error       // Error / Retry 时填充
+
+	// Attempt 是当前尝试次数（1 起）。仅 PhaseRetry 有意义：表示"刚失败的这次是第几次"。
+	Attempt int
+	// MaxAttempts 是策略允许的总尝试次数。仅 PhaseRetry 有意义。
+	MaxAttempts int
+	// NextBackoff 是即将 sleep 的时长；PhaseRetry 场景使用。
+	NextBackoff time.Duration
 }
 
 // OnStepFunc 是 Runner 的观察回调。
@@ -147,7 +161,7 @@ func (r *Runner) Run(ctx context.Context, w *Workflow, opts RunOptions) (*Result
 	for i, step := range w.Steps {
 		emit(opts.OnStep, StepEvent{Phase: PhaseStart, Index: i, Step: step})
 
-		sr := r.runStep(ctx, step, scope, opts)
+		sr := r.runStep(ctx, i, step, scope, opts)
 		res.Steps = append(res.Steps, sr)
 
 		if !sr.OK {
@@ -188,7 +202,7 @@ func (r *Runner) Run(ctx context.Context, w *Workflow, opts RunOptions) (*Result
 // 单步执行
 // -----------------------------------------------------------------------------
 
-func (r *Runner) runStep(ctx context.Context, step Step, scope Scope, opts RunOptions) StepResult {
+func (r *Runner) runStep(ctx context.Context, index int, step Step, scope Scope, opts RunOptions) StepResult {
 	sr := StepResult{StepID: step.ID, Command: step.Command, Recipe: step.Recipe}
 	stepStart := time.Now()
 	defer func() { sr.Duration = time.Since(stepStart) }()
@@ -208,7 +222,7 @@ func (r *Runner) runStep(ctx context.Context, step Step, scope Scope, opts RunOp
 		}
 	}
 
-	// 1. 插值
+	// 1. 插值（重试无关：参数解析失败没有重试意义）
 	interpolated, err := Interpolate(step.Params, scope)
 	if err != nil {
 		sr.ErrorCode = "INTERPOLATE"
@@ -222,48 +236,133 @@ func (r *Runner) runStep(ctx context.Context, step Step, scope Scope, opts RunOp
 		return sr
 	}
 
-	// 2. 分派 Command / Recipe
+	// 2. 分派 + 重试循环
 	execOpts := CommandRunOptions{
 		TargetID: opts.TargetID,
 		Timeout:  step.Timeout,
 		Caller:   opts.Caller,
 	}
+	maxAttempts := step.Retry.attempts()
+	var (
+		out     *StepOutput
+		lastErr error
+	)
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		sr.Attempts = attempt
+		out, lastErr = r.execOnce(ctx, step, params, execOpts)
 
-	var out *StepOutput
+		// 声明性错误（executor 缺失 / 步骤不合法）—— 重试也无用，直接返回。
+		if lastErr != nil && isNonRetryableExecErr(lastErr) {
+			sr.ErrorCode = execErrCode(lastErr)
+			sr.ErrorMsg = lastErr.Error()
+			return sr
+		}
+
+		if lastErr == nil {
+			// 成功：清空之前失败态并跳出。
+			sr.OK = true
+			sr.ErrorCode = ""
+			sr.ErrorMsg = ""
+			if out != nil {
+				sr.AuditID = out.AuditID
+				sr.Data = out.Data
+			}
+			return sr
+		}
+
+		// 有更多重试机会 → PhaseRetry；否则跳出循环让上层走 PhaseError。
+		if attempt < maxAttempts {
+			// 先在 sr 上留下失败态方便回调观察
+			sr.ErrorCode = errorCode(lastErr)
+			sr.ErrorMsg = lastErr.Error()
+
+			backoff := step.Retry.nextBackoff(attempt)
+			emit(opts.OnStep, StepEvent{
+				Phase: PhaseRetry, Index: index, Step: step,
+				Result: &sr, Err: lastErr,
+				Attempt: attempt, MaxAttempts: maxAttempts, NextBackoff: backoff,
+			})
+			if err := sleepCtx(ctx, backoff); err != nil {
+				// ctx 已取消 / 超时：以最后一次执行错误返回，不再重试。
+				return sr
+			}
+			continue
+		}
+	}
+
+	// 走到这里说明用尽 max 次仍失败。
+	sr.ErrorCode = errorCode(lastErr)
+	sr.ErrorMsg = lastErr.Error()
+	return sr
+}
+
+// execOnce 是"一次真正的执行"：参数已解析，返回底层 executor 的原始错误。
+//
+// 分离这一层是为了让重试循环只关心成功 / 失败，无需重复参数解析开销。
+func (r *Runner) execOnce(ctx context.Context, step Step, params map[string]any, execOpts CommandRunOptions) (*StepOutput, error) {
 	switch {
 	case step.Command != "":
 		if r.cmd == nil {
-			sr.ErrorCode = "NO_EXECUTOR"
-			sr.ErrorMsg = "no CommandExecutor configured"
-			return sr
+			return nil, &execConfigErr{code: "NO_EXECUTOR", msg: "no CommandExecutor configured"}
 		}
-		out, err = r.cmd.RunCommand(ctx, step.Command, params, execOpts)
+		return r.cmd.RunCommand(ctx, step.Command, params, execOpts)
 	case step.Recipe != "":
 		if r.recipe == nil {
-			sr.ErrorCode = "NO_EXECUTOR"
-			sr.ErrorMsg = "no RecipeExecutor configured"
-			return sr
+			return nil, &execConfigErr{code: "NO_EXECUTOR", msg: "no RecipeExecutor configured"}
 		}
-		out, err = r.recipe.RunRecipe(ctx, step.Recipe, params, execOpts)
+		return r.recipe.RunRecipe(ctx, step.Recipe, params, execOpts)
 	default:
 		// Validate 已拦截，这里作为兜底防御。
-		sr.ErrorCode = "INVALID_STEP"
-		sr.ErrorMsg = "step has neither command nor recipe"
-		return sr
+		return nil, &execConfigErr{code: "INVALID_STEP", msg: "step has neither command nor recipe"}
 	}
+}
 
-	// 3. 处理结果
-	if err != nil {
-		sr.ErrorCode = errorCode(err)
-		sr.ErrorMsg = err.Error()
-		return sr
+// -----------------------------------------------------------------------------
+// 声明性 / 配置错误：与业务错误分开，永远不重试
+// -----------------------------------------------------------------------------
+
+// execConfigErr 是 execOnce 内部产生的"声明性错误"载体。
+// 它实现 CodedError 以便被 errorCode() 提取，同时被 isNonRetryableExecErr 命中。
+type execConfigErr struct {
+	code string
+	msg  string
+}
+
+func (e *execConfigErr) Error() string     { return e.msg }
+func (e *execConfigErr) ErrorCode() string { return e.code }
+
+// isNonRetryableExecErr 判断 execOnce 返回的错误是否绝不重试。
+func isNonRetryableExecErr(err error) bool {
+	_, ok := err.(*execConfigErr)
+	return ok
+}
+
+// execErrCode 是 execConfigErr → code 的直取工具（用于快路径）。
+func execErrCode(err error) string {
+	if e, ok := err.(*execConfigErr); ok {
+		return e.code
 	}
-	sr.OK = true
-	if out != nil {
-		sr.AuditID = out.AuditID
-		sr.Data = out.Data
+	return errorCode(err)
+}
+
+// sleepCtx 在 ctx 未取消的前提下 sleep d；若 d<=0 立即返回 nil。
+// ctx 结束时返回 ctx.Err()。
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		// 即便零间隔也尊重 ctx 取消
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return nil
 	}
-	return sr
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // -----------------------------------------------------------------------------

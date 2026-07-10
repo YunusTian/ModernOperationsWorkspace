@@ -176,15 +176,26 @@ func emitStepEvent(ctx context.Context, sess string, ev workflow.StepEvent) {
 	if ev.Step.When != "" {
 		payload["when"] = ev.Step.When
 	}
+	if ev.Phase == workflow.PhaseRetry {
+		payload["attempt"] = ev.Attempt
+		payload["max_attempts"] = ev.MaxAttempts
+		payload["next_backoff_ms"] = ev.NextBackoff.Milliseconds()
+		if ev.Err != nil {
+			payload["error_msg"] = ev.Err.Error()
+		}
+	}
 	if ev.Result != nil {
 		payload["duration_ms"] = ev.Result.Duration.Milliseconds()
 		if ev.Result.Skipped {
 			payload["skipped"] = true
 		}
+		if ev.Result.Attempts > 0 {
+			payload["attempts"] = ev.Result.Attempts
+		}
 		if ev.Result.ErrorCode != "" {
 			payload["error_code"] = ev.Result.ErrorCode
 		}
-		if ev.Result.ErrorMsg != "" {
+		if ev.Result.ErrorMsg != "" && ev.Phase != workflow.PhaseRetry {
 			payload["error_msg"] = ev.Result.ErrorMsg
 		}
 	}

@@ -77,6 +77,95 @@ type Step struct {
 	// 允许引用与 Params 同款作用域：${inputs.*}、${steps.<id>.out.*}。
 	// 与 Params 不同的是这里不需要 ${} 包裹（整串就是表达式）。
 	When string
+
+	// Retry 是可选的重试策略；nil 或 Max<=1 表示不重试。
+	//
+	// 语义边界（见 docs/workflow.md §7.4.2）：
+	//   - Max 是"总尝试次数含首次"；1 = 不重试
+	//   - 仅对执行阶段错误重试；WHEN_EVAL / INTERPOLATE / NO_EXECUTOR / INVALID_STEP 不重试
+	//   - ctx 取消 / 超时会打断 backoff 睡眠，立即返回最后一次执行错误
+	Retry *RetryPolicy
+}
+
+// RetryPolicy 描述一个 Step 的重试策略。
+//
+// 保守设计：
+//   - v0.3 第二批只做 fixed / exponential（× 2）两种退避
+//   - 不支持 jitter（避免复杂化）
+//   - 不区分错误类型选择性重试；由 Runner 统一在"仅执行失败"这一层过滤
+type RetryPolicy struct {
+	// Max 是总尝试次数（含首次）。合法范围 [1, 20]；0 / 缺省 = 1 = 不重试。
+	Max int
+
+	// Backoff 是每次失败后的等待时长；0 表示不等待，立即重试。
+	Backoff time.Duration
+
+	// MaxBackoff 是 exponential 场景下的时长封顶；0 表示不封顶。
+	// 对 fixed 场景无意义。
+	MaxBackoff time.Duration
+
+	// Exponential 为 true 时每次退避 × 2（capped by MaxBackoff）；
+	// false 时始终使用 Backoff。
+	Exponential bool
+}
+
+// Validate 校验 RetryPolicy 的静态字段。允许 nil（等价于不重试）。
+func (p *RetryPolicy) Validate() error {
+	if p == nil {
+		return nil
+	}
+	if p.Max < 0 {
+		return errors.New("retry.max must be >= 0")
+	}
+	if p.Max > 20 {
+		return fmt.Errorf("retry.max=%d exceeds hard cap 20", p.Max)
+	}
+	if p.Backoff < 0 {
+		return errors.New("retry.backoff must be >= 0")
+	}
+	if p.MaxBackoff < 0 {
+		return errors.New("retry.max_backoff must be >= 0")
+	}
+	if p.MaxBackoff > 0 && p.Backoff > p.MaxBackoff {
+		return errors.New("retry.backoff must be <= retry.max_backoff")
+	}
+	if p.Exponential && p.Backoff == 0 {
+		return errors.New("retry.exponential=true requires retry.backoff > 0")
+	}
+	return nil
+}
+
+// attempts 返回策略下的最大尝试次数（含首次）。
+func (p *RetryPolicy) attempts() int {
+	if p == nil || p.Max <= 1 {
+		return 1
+	}
+	return p.Max
+}
+
+// nextBackoff 计算第 attempt 次失败后应等待的时长（attempt 从 1 开始）。
+//
+// attempt=1 表示"首次失败后即将开始的第一次退避"，返回 Backoff。
+// exponential 时：第 n 次退避 = Backoff * 2^(n-1)，被 MaxBackoff 封顶。
+func (p *RetryPolicy) nextBackoff(attempt int) time.Duration {
+	if p == nil || attempt < 1 || p.Backoff <= 0 {
+		return 0
+	}
+	if !p.Exponential {
+		return p.Backoff
+	}
+	// exponential：shift 位运算避免 float
+	d := p.Backoff
+	for i := 1; i < attempt; i++ {
+		d *= 2
+		if p.MaxBackoff > 0 && d >= p.MaxBackoff {
+			return p.MaxBackoff
+		}
+	}
+	if p.MaxBackoff > 0 && d > p.MaxBackoff {
+		return p.MaxBackoff
+	}
+	return d
 }
 
 // Workflow 是一次完整的编排声明。
@@ -134,6 +223,9 @@ func (w *Workflow) Validate() error {
 
 		if s.Timeout < 0 {
 			return fmt.Errorf("step %q: timeout must be >= 0", s.ID)
+		}
+		if err := s.Retry.Validate(); err != nil {
+			return fmt.Errorf("step %q: %w", s.ID, err)
 		}
 	}
 	return nil

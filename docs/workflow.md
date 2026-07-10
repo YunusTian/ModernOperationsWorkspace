@@ -115,6 +115,7 @@ workflow:
 | `params` | map | 传给 Command / Recipe 的入参；值可用 `${...}` 插值 |
 | `timeout` | duration | 例：`5s` / `1m30s`；`0` 或缺省走底层默认 |
 | `when` | string | 可选；expr-lang 表达式，求值为 `false` 时跳过（`Skipped`），求值失败中断 Workflow。**v0.3 第一批已合入** |
+| `retry` | object | 可选；`{ max, backoff, max_backoff, exponential }`，见 §7.4.2。**v0.3 第二批已合入** |
 
 ### 7.4 变量插值
 
@@ -151,6 +152,47 @@ steps:
 - 求值失败 → `ErrorCode=WHEN_EVAL`，Workflow 中断（防御式：与语法错等同）
 - CLI 打印 `⤼ skipped (when=...)`；Desktop 用 `⤼` 图标 + `wf-log-skipped` 样式区分
 
+#### 7.4.2 `retry` 单 Step 重试（v0.3 第二批）
+
+```yaml
+steps:
+  - id: health
+    command: ssh.exec
+    params: { cmd: "curl -sf http://localhost/healthz" }
+    retry:
+      max: 5             # 总尝试次数含首次
+      backoff: 500ms     # 每次失败后等待
+      max_backoff: 5s    # 封顶（仅 exponential 有意义）
+      exponential: true  # 每次 × 2；否则固定 backoff
+```
+
+**语义边界**：
+
+| 场景 | 是否重试 |
+|---|---|
+| 执行器返回业务错误（`STEP_FAILED` / `CodedError`） | ✅ 重试 |
+| `when` 求值失败（`WHEN_EVAL`） | ❌ 直接中断，`Attempts=0` |
+| 参数插值失败（`INTERPOLATE`） | ❌ 直接中断，`Attempts=0` |
+| 未配置执行器（`NO_EXECUTOR` / `INVALID_STEP`） | ❌ 直接中断，`Attempts=1` |
+| `ctx` 取消 / 超时（backoff 期间） | ❌ 立即返回最后一次执行错误 |
+
+**字段规则**：
+
+- `max ∈ [0, 20]`；`0` / `1` 等价于不重试；上限 `20` 是硬约束，防止 YAML 手误。
+- `backoff ≥ 0`；`0` 表示不等待，立即重试。
+- `exponential: true` 强制 `backoff > 0`；每次 `= backoff × 2`，被 `max_backoff` 封顶。
+- 校验：`backoff ≤ max_backoff`；违规在 `LoadBytes` 阶段就报错。
+
+**观测**：
+
+- `StepResult.Attempts` 记录实际执行次数（`Skipped` 步为 `0`）。
+- `StepEvent.Phase = PhaseRetry` 在**每次失败后即将 sleep 前**触发一次，携带：
+  - `Attempt` — 刚失败的这次是第几次
+  - `MaxAttempts` — 总预算
+  - `NextBackoff` — 即将 sleep 的时长
+  - `Err` — 该次的原始错误
+- CLI：`↻ retry 1/3 after 500ms: connection refused`；Desktop：状态转 `retrying`，展示 `attempt 1/3, retry in 500ms — …`。
+
 ### 7.5 尚未实现（v0.3+）
 
 按 **分批推进** 顺序落地，避免一次交付太大：
@@ -158,7 +200,7 @@ steps:
 | 字段 / 特性 | 状态 | 说明 |
 | --- | --- | --- |
 | `when: <expr>` | 🔨 **v0.3 第一批（已合入）** | 条件分支；表达式复用 expr-lang，无 `${}` 包裹 |
-| `retry: { max, backoff }` | ⏳ v0.3 第二批 | 单 step 重试；先做 fixed / exponential backoff，暂不实现 jitter |
+| `retry: { max, backoff, max_backoff, exponential }` | 🔨 **v0.3 第二批（已合入）** | 单 step 重试；fixed / exponential，无 jitter |
 | 状态持久化（SQLite） | ⏳ v0.3 第三批 | 与审计日志共享存储；先只做执行历史查询 |
 | `on_failure` / `rollback` | ⏳ v0.3 第四批 | 手动声明式回滚；`rollback` 是 `on_failure` 的语法糖 |
 | `parallel: true` | ⏳ v0.3 第五批 | **最后做**，涉及取消传播、资源竞争、事件顺序、审计一致性、测试复杂度显著上升 |

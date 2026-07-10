@@ -354,9 +354,33 @@ func (p *progressPrinter) onStep(ev workflow.StepEvent) {
 		)
 
 	case workflow.PhaseFinish:
-		fmt.Fprintf(p.w, "%s✓%s %s\n",
+		attempts := ""
+		if ev.Result != nil && ev.Result.Attempts > 1 {
+			attempts = fmt.Sprintf(" %s(attempt %d)%s",
+				p.c(ansiDim), ev.Result.Attempts, p.c(ansiReset))
+		}
+		fmt.Fprintf(p.w, "%s✓%s %s%s\n",
 			p.c(ansiGreen), p.c(ansiReset),
-			formatDur(ev.Result.Duration),
+			formatDur(ev.Result.Duration), attempts,
+		)
+
+	case workflow.PhaseRetry:
+		// 在 start 行的末尾插入一段 "↻ retry i/m after 500ms"，然后换行；
+		// 下一次尝试没有单独 PhaseStart，因此再输出一行占位前缀以便 finish/error 对齐。
+		errShort := ""
+		if ev.Err != nil {
+			errShort = ": " + trunc(ev.Err.Error(), 80)
+		}
+		fmt.Fprintf(p.w, "%s↻%s %sretry %d/%d after %s%s%s\n",
+			p.c(ansiYellow), p.c(ansiReset),
+			p.c(ansiDim),
+			ev.Attempt, ev.MaxAttempts, formatDur(ev.NextBackoff),
+			errShort, p.c(ansiReset),
+		)
+		fmt.Fprintf(p.w, "%s▶%s %s%s%s %s(%s:%s attempt %d)%s ... ",
+			p.c(ansiCyan), p.c(ansiReset),
+			p.c(ansiBold), ev.Step.ID, p.c(ansiReset),
+			p.c(ansiDim), kindTag, kind, ev.Attempt+1, p.c(ansiReset),
 		)
 
 	case workflow.PhaseSkip:
@@ -371,17 +395,33 @@ func (p *progressPrinter) onStep(ev workflow.StepEvent) {
 	case workflow.PhaseError:
 		code := ""
 		msg := ""
+		attempts := ""
 		if ev.Result != nil {
 			code = ev.Result.ErrorCode
 			msg = ev.Result.ErrorMsg
+			if ev.Result.Attempts > 1 {
+				attempts = fmt.Sprintf(" %s(attempts=%d)%s",
+					p.c(ansiDim), ev.Result.Attempts, p.c(ansiReset))
+			}
 		}
-		fmt.Fprintf(p.w, "%s✗%s %s %s[%s]%s %s\n",
+		fmt.Fprintf(p.w, "%s✗%s %s%s %s[%s]%s %s\n",
 			p.c(ansiRed), p.c(ansiReset),
-			formatDur(ev.Result.Duration),
+			formatDur(ev.Result.Duration), attempts,
 			p.c(ansiYellow), code, p.c(ansiReset),
 			msg,
 		)
 	}
+}
+
+// trunc 截断字符串到 max 字符（含 "…"）。
+func trunc(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	if max < 3 {
+		return s[:max]
+	}
+	return s[:max-1] + "…"
 }
 
 func formatDur(d time.Duration) string {
@@ -409,15 +449,22 @@ func printWorkflowSummary(w io.Writer, res *workflow.Result, color bool) {
 		tag = col + status + ansiReset
 	}
 	skipped := 0
+	retried := 0
 	for _, s := range res.Steps {
 		if s.Skipped {
 			skipped++
 		}
+		if s.Attempts > 1 {
+			retried++
+		}
 	}
-	skippedTag := ""
+	tail := ""
 	if skipped > 0 {
-		skippedTag = fmt.Sprintf(" skipped=%d", skipped)
+		tail += fmt.Sprintf(" skipped=%d", skipped)
+	}
+	if retried > 0 {
+		tail += fmt.Sprintf(" retried=%d", retried)
 	}
 	fmt.Fprintf(w, "\nworkflow=%s status=%s duration=%s%s\n",
-		res.WorkflowID, tag, res.Duration.Round(time.Millisecond), skippedTag)
+		res.WorkflowID, tag, res.Duration.Round(time.Millisecond), tail)
 }

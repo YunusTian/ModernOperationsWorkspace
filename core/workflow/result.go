@@ -50,6 +50,12 @@ type StepResult struct {
 	ErrorCode string `json:"error_code,omitempty"`
 	ErrorMsg  string `json:"error_msg,omitempty"`
 
-	// Duration：本步的墙钟耗时。
+	// Attempts 记录该 Step 实际执行的次数（含首次）。
+	//   - 0：Skipped，从未执行
+	//   - 1：无重试或首次即成功
+	//   - >1：触发过 retry
+	Attempts int `json:"attempts,omitempty"`
+
+	// Duration：本步的墙钟耗时（含所有 retry + backoff）。
 	Duration time.Duration `json:"duration"`
 }

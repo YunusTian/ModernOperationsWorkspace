@@ -115,11 +115,11 @@ workflow:
   steps:
     - id: s1
       command: ssh.exec
-      retry: { max: 3 }   # 未支持
+      rollback: [s0]   # 未支持
 `
 	_, err := workflow.LoadBytes([]byte(data))
-	if err == nil || !strings.Contains(err.Error(), "retry") {
-		t.Fatalf("expected strict error for retry, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "rollback") {
+		t.Fatalf("expected strict error for rollback, got: %v", err)
 	}
 }
 

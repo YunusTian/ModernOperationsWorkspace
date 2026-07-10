@@ -36,7 +36,7 @@
   - ⏳ 第三阶段：镜像 / 卷 / 网络 / Compose 视图；`docker.rm` 前置弹窗；容器 exec 交互式终端
 - **Workflow 引擎增强**（分批推进，避免一次交付太大）
   - 🔨 **第一批（已合入）**：`when: <expr>` 条件分支 — 详见 [workflow.md §7.4.1](./workflow.md#741-when-条件分支v03-第一批)
-  - ⏳ 第二批：`retry: { max, backoff }` 单 step 重试
+  - 🔨 **第二批（已合入）**：`retry: { max, backoff, max_backoff, exponential }` 单 step 重试 — 详见 [workflow.md §7.4.2](./workflow.md#742-retry-单-step-重试v03-第二批)
   - ⏳ 第三批：**Workflow 执行历史持久化**（SQLite，与审计日志共享）
   - ⏳ 第四批：`on_failure` / `rollback` 声明式回滚
   - ⏳ 第五批：`parallel: true` 组内并行（最后做——取消传播、资源竞争、事件顺序、审计一致性、测试复杂度显著增加）

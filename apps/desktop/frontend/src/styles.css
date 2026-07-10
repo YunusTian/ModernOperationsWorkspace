@@ -341,6 +341,22 @@ body,
 .wf-log-skipped {
   color: #999;
 }
+.wf-log-retrying .wf-icon {
+  color: #d0a24a;
+}
+.wf-log-retrying {
+  color: #d0a24a;
+}
+.wf-retry-hint {
+  color: #d0a24a;
+  font-family: "Menlo", "Consolas", monospace;
+  font-size: 12px;
+}
+.wf-attempts {
+  color: #888;
+  font-size: 11px;
+  font-family: "Menlo", "Consolas", monospace;
+}
 .wf-when {
   color: #b39c5a;
   font-family: "Menlo", "Consolas", monospace;
