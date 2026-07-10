@@ -1,9 +1,11 @@
 // Package main 实现 mow-plugin-ssh —— 官方 SSH 插件。
 //
 // v0.1 交付：
+//   - ssh.exec：远端命令执行（一次性、非交互）
+//   - ssh.shell：交互式 PTY 会话（流式双向）
+//   - sftp.list / sftp.upload / sftp.download：SFTP 文件操作
+//   - ssh.ping：gRPC bridge 连通性检测
 //   - SSH 会话池（*ssh.Client 复用 + 引用计数 + 空闲 GC）
-//   - ssh.exec：真正的远端命令执行（一次性、非交互）
-//   - ssh.ping：保留，供 grpcbridge 端到端 sanity check
 //
 // 底层协议：golang.org/x/crypto/ssh
 // 凭据来源：sdk.Connection.Credentials （由 core/connection.Manager 下发）
@@ -33,7 +35,7 @@ func (p *SSHPlugin) Metadata() sdk.Metadata {
 		Name:            "SSH",
 		Version:         "0.1.0",
 		Author:          "mow",
-		Description:     "SSH connection pool + command execution",
+		Description:     "SSH remote execution, interactive shell, and SFTP file transfer",
 		CoreVersion:     ">=0.1.0,<0.2.0",
 		ConnectionTypes: []string{"ssh"},
 	}

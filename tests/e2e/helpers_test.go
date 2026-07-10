@@ -21,6 +21,7 @@ import (
 	"time"
 
 	glssh "github.com/gliderlabs/ssh"
+	"github.com/pkg/sftp"
 	xssh "golang.org/x/crypto/ssh"
 
 	"github.com/mow/mow/core/command"
@@ -172,6 +173,65 @@ func startFakeSSHServer(t *testing.T, h sessionHandler, opts ...serverOption) *f
 	server := &glssh.Server{
 		Addr:    "127.0.0.1:0",
 		Handler: glssh.Handler(h),
+	}
+	for _, opt := range opts {
+		opt(server)
+	}
+	server.AddHostKey(signer)
+
+	raw, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	ln := &countingListener{Listener: raw, count: &fs.Conns}
+	fs.Addr = raw.Addr().String()
+	fs.Port = raw.Addr().(*net.TCPAddr).Port
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = server.Serve(ln)
+	}()
+
+	fs.stop = func() {
+		_ = server.Close()
+		wg.Wait()
+	}
+	t.Cleanup(fs.stop)
+	return fs
+}
+
+// -----------------------------------------------------------------------------
+// Fake SSH server + SFTP subsystem（InMemHandler）
+// -----------------------------------------------------------------------------
+
+// startFakeSSHServerWithSFTP 与 startFakeSSHServer 相同，但同时注册 "sftp"
+// 子系统，使用 sftp.InMemHandler() 提供内存文件系统。
+func startFakeSSHServerWithSFTP(t *testing.T, h sessionHandler, opts ...serverOption) *fakeSSHServer {
+	t.Helper()
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("gen host key: %v", err)
+	}
+	signer, err := xssh.NewSignerFromKey(key)
+	if err != nil {
+		t.Fatalf("host signer: %v", err)
+	}
+
+	fs := &fakeSSHServer{}
+	sftpHandler := sftp.InMemHandler()
+
+	server := &glssh.Server{
+		Addr:    "127.0.0.1:0",
+		Handler: glssh.Handler(h),
+		SubsystemHandlers: map[string]glssh.SubsystemHandler{
+			"sftp": func(s glssh.Session) {
+				rsrv := sftp.NewRequestServer(s, sftpHandler)
+				_ = rsrv.Serve()
+			},
+		},
 	}
 	for _, opt := range opts {
 		opt(server)
@@ -440,4 +500,97 @@ func sleepHandler() sessionHandler {
 		<-s.Context().Done()
 		_ = s.Exit(255)
 	}
+}
+
+// -----------------------------------------------------------------------------
+// SFTP 结果类型与 run helpers
+// -----------------------------------------------------------------------------
+
+type sftpListResult struct {
+	Path    string      `json:"path"`
+	Entries []sftpEntry `json:"entries"`
+}
+
+type sftpEntry struct {
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	Mode    string `json:"mode"`
+	ModTime string `json:"mod_time"`
+	IsDir   bool   `json:"is_dir"`
+	IsLink  bool   `json:"is_link"`
+}
+
+type sftpUploadResult struct {
+	RemotePath string `json:"remote_path"`
+	BytesSent  int64  `json:"bytes_sent"`
+}
+
+type sftpDownloadResult struct {
+	RemotePath    string `json:"remote_path"`
+	LocalPath     string `json:"local_path,omitempty"`
+	BytesReceived int64  `json:"bytes_received"`
+	ContentB64    string `json:"content_b64,omitempty"`
+}
+
+// runSFTPList 通过 Engine 执行 sftp.list。
+func (r *rig) runSFTPList(ctx context.Context, t *testing.T, targetID, path string) (*sftpListResult, error) {
+	t.Helper()
+	params, _ := json.Marshal(map[string]string{"path": path})
+	resp, err := r.Engine.Run(ctx, command.Request{
+		PluginID:  "ssh",
+		CommandID: "sftp.list",
+		Params:    params,
+		TargetID:  targetID,
+		Caller:    sdk.Caller{Type: sdk.CallerCLI, User: "test"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out sftpListResult
+	if err := json.Unmarshal(resp.Data, &out); err != nil {
+		return nil, fmt.Errorf("decode sftp.list result: %w", err)
+	}
+	return &out, nil
+}
+
+// runSFTPUpload 通过 Engine 执行 sftp.upload（仅支持 content_b64 模式）。
+func (r *rig) runSFTPUpload(ctx context.Context, t *testing.T, targetID string, params map[string]any) (*sftpUploadResult, error) {
+	t.Helper()
+	raw, _ := json.Marshal(params)
+	resp, err := r.Engine.Run(ctx, command.Request{
+		PluginID:  "ssh",
+		CommandID: "sftp.upload",
+		Params:    raw,
+		TargetID:  targetID,
+		Caller:    sdk.Caller{Type: sdk.CallerCLI, User: "test"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out sftpUploadResult
+	if err := json.Unmarshal(resp.Data, &out); err != nil {
+		return nil, fmt.Errorf("decode sftp.upload result: %w (raw=%s)", err, string(resp.Data))
+	}
+	return &out, nil
+}
+
+// runSFTPDownload 通过 Engine 执行 sftp.download。
+func (r *rig) runSFTPDownload(ctx context.Context, t *testing.T, targetID string, params map[string]any) (*sftpDownloadResult, error) {
+	t.Helper()
+	raw, _ := json.Marshal(params)
+	resp, err := r.Engine.Run(ctx, command.Request{
+		PluginID:  "ssh",
+		CommandID: "sftp.download",
+		Params:    raw,
+		TargetID:  targetID,
+		Caller:    sdk.Caller{Type: sdk.CallerCLI, User: "test"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out sftpDownloadResult
+	if err := json.Unmarshal(resp.Data, &out); err != nil {
+		return nil, fmt.Errorf("decode sftp.download result: %w (raw=%s)", err, string(resp.Data))
+	}
+	return &out, nil
 }

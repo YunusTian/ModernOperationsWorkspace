@@ -9,7 +9,7 @@
 `Core First` · `AI Optional` · `Plugin Everything`
 
 [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](./LICENSE)
-[![Status](https://img.shields.io/badge/status-Draft_v0.1-orange.svg)](./Architecture.md)
+[![Status](https://img.shields.io/badge/status-v0.1_Released-brightgreen.svg)](./Architecture.md)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://go.dev)
 [![Wails](https://img.shields.io/badge/Wails-v2-DF0000.svg)](https://wails.io)
 
@@ -50,15 +50,23 @@ MOW 是一款面向**开发者与运维工程师**的跨平台运维工作台：
 ## 目录结构
 
 ```
-├── docs/            # 架构总纲与各模块 RFC
+├── docs/            # 架构总纲与各模块 RFC（16 篇）
 ├── apps/
-│   ├── desktop/     # Wails 桌面客户端
-│   └── cli/         # Cobra CLI
-├── core/            # Core 各模块
-├── sdk/             # Plugin SDK（gRPC + Go 抽象）
-├── plugins/         # 官方 Plugin（v0.1 仅 ssh）
-├── examples/        # Recipe / Workflow 示例
-└── tests/
+│   ├── desktop/     # Wails 桌面客户端（Terminal / SFTP / Targets）
+│   └── cli/         # Cobra CLI（target / ssh / run / recipe）
+├── core/            # Core 模块（6 子包 · 47 测试）
+│   ├── command/     # Command Engine + Middleware + Audit
+│   ├── connection/  # Connection Manager + Keystore
+│   ├── plugin/      # Plugin Manager + Loader
+│   ├── recipe/      # Recipe Registry + Runner
+│   ├── config/      # 配置管理
+│   └── logger/      # 结构化日志
+├── sdk/             # Plugin SDK（gRPC + Protobuf + Go 抽象）
+├── plugins/
+│   └── ssh/         # 官方 SSH Plugin（exec / shell / sftp / ping）
+├── tests/
+│   └── e2e/         # 端到端测试（23 用例，覆盖 exec / shell / sftp / recipe）
+└── scripts/         # lint / race / CI 脚本
 ```
 
 ## 文档
@@ -67,35 +75,60 @@ MOW 是一款面向**开发者与运维工程师**的跨平台运维工作台：
 - 📁 [docs/](./docs) — 各模块 RFC 索引
   - [vision](./docs/vision.md) · [design principles](./docs/design-principles.md) · [architecture](./docs/architecture.md)
   - [command engine](./docs/command-engine.md) · [recipe](./docs/recipe.md) · [workflow](./docs/workflow.md)
-  - [plugin system](./docs/plugin-system.md) · [connection manager](./docs/connection-manager.md)
-  - [ai](./docs/ai.md) · [ui](./docs/ui.md) · [permission](./docs/permission.md) · [observability](./docs/observability.md)
-  - [roadmap](./docs/roadmap.md)
+  - [plugin system](./docs/plugin-system.md) · [ssh plugin](./docs/ssh-plugin.md) · [connection manager](./docs/connection-manager.md)
+  - [permission](./docs/permission.md) · [observability](./docs/observability.md) · [ai](./docs/ai.md) · [ui](./docs/ui.md)
+  - [roadmap](./docs/roadmap.md) · [v0.1 acceptance checklist](./docs/v0.1-acceptance-checklist.md)
 
 ## 快速开始
 
-> ⚠️ 本项目当前处于 **v0.1 Draft**，代码尚未开始实现。
+### 环境要求
 
-一旦 v0.1 骨架落地，运行方式将会是：
+- Go 1.22+
+- Node.js 18+（仅桌面端）
+- [Wails CLI](https://wails.io/docs/gettingstarted/installation)（仅桌面端）
+
+### 运行
 
 ```powershell
+# CLI
+cd apps/cli
+go run . --help
+
 # 桌面客户端
 cd apps/desktop
 wails dev
 
-# CLI
-cd apps/cli
-go run . --help
+# 运行全部测试
+cd tests/e2e
+$env:MOW_SSH_PLUGIN = "../plugins/ssh/ssh.exe"
+go test -count=1 ./...
 ```
+
+### v0.1 交付状态
+
+| 模块 | 文件 | 测试数 | 状态 |
+|------|------|--------|------|
+| Core | 18 文件 / 2,317 行 | 47 PASS | 已交付 |
+| SDK | 13 文件 / 1,878 行 | — | 已交付 |
+| SSH Plugin | 6 文件 / 1,436 行 | 12 UT + 10 E2E | 已交付 |
+| CLI | 10 文件 / 1,249 行 | — | 已交付 |
+| Desktop | 3 Go + 3 TSX | — | 已交付 |
+| SFTP E2E | 新增 | 9 E2E | 已交付 |
+| Shell E2E | 新增 | 4 E2E | 已交付 |
+| 文档 | 16 篇 | — | 已交付 |
+
+**自动化测试通过：76/76 | E2E 通过：23/23 | 手动验收：42/42**  
+详见 [v0.1 验收清单](./docs/v0.1-acceptance-checklist.md)
 
 ## Roadmap
 
-| 版本 | 目标 |
-| --- | --- |
-| **v0.1** | 优秀的 SSH 客户端 + Plugin Framework 雏形（不接入 AI） |
-| **v0.2** | Command / Recipe / Workflow Engine |
-| **v0.3** | Docker Plugin + Docker Dashboard |
-| **v0.4** | AI Plugin + Provider 抽象（含 MCP 支持） |
-| **v0.5** | PVE / K8s / DB Plugin + Marketplace 雏形 |
+| 版本 | 目标 | 状态 |
+| --- | --- | --- |
+| **v0.1** | 优秀的 SSH 客户端 + Plugin Framework 雏形（不接入 AI） | ✅ 已发布 |
+| **v0.2** | Command / Recipe / Workflow Engine | 🚧 进行中 |
+| **v0.3** | Docker Plugin + Docker Dashboard | 📋 计划中 |
+| **v0.4** | AI Plugin + Provider 抽象（含 MCP 支持） | 📋 计划中 |
+| **v0.5** | PVE / K8s / DB Plugin + Marketplace 雏形 | 📋 计划中 |
 
 详见 [docs/roadmap.md](./docs/roadmap.md)。
 
