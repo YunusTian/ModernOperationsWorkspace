@@ -29,12 +29,9 @@
 ## v0.3 — Docker Plugin + Docker Dashboard 🎯 下一版
 
 - **Docker Plugin**（作为独立进程 gRPC 插件）
-  - `docker.list` / `docker.inspect`
-  - `docker.pull` / `docker.push`
-  - `docker.start` / `docker.stop` / `docker.restart` / `docker.rm`
-  - `docker.logs`（流式）
-  - `docker.exec`（流式）
-- **Docker Dashboard**（Desktop 新增 Tab）
+  - 🔨 **第一阶段（MVP，已合入）**：`docker.list` / `docker.inspect` / `docker.start` / `docker.stop` / `docker.restart` / `docker.logs`（流式）— 详见 [docker-plugin.md](./docker-plugin.md)
+  - ⏳ 第二阶段：`docker.pull` / `docker.push` / `docker.rm`（Dangerous） / `docker.exec`（流式）
+- **Docker Dashboard**（Desktop 新增 Tab，v0.3 第二阶段）
   - 容器列表 + 状态徽标（running / exited / paused）
   - 端口 / 挂载 / 环境变量只读视图
   - 一键 logs / restart / rm（Dangerous 走二次确认）

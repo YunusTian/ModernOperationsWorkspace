@@ -70,6 +70,8 @@ func (t *Target) Validate() error {
 			return errors.New("connection: ssh target requires user")
 		}
 	}
+	// Docker target 的 host 由 DockerCredentials.Host 提供（可能是 unix:// 无 host 字段），
+	// 因此这里不强制 Target.Host；具体校验在 DockerCredentials.Validate 中完成。
 	return nil
 }
 

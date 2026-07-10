@@ -19,6 +19,7 @@ modules=(
   "apps/cli"
   "apps/desktop"
   "plugins/ssh"
+  "plugins/docker"
   "sdk"
   "tests/e2e"
 )

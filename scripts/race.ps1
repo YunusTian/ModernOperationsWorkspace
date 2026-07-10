@@ -29,6 +29,7 @@ $env:CGO_ENABLED = '1'
 $modules = @(
     'core',
     'plugins\ssh',
+    'plugins\docker',
     'tests\e2e'
 )
 

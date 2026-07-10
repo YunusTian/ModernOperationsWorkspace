@@ -47,6 +47,14 @@ type addOpts struct {
 	KnownHostsMode string
 	KnownHostsPath string
 
+	// Docker-specific
+	DockerHost       string
+	DockerAPIVersion string
+	DockerTLSVerify  bool
+	DockerTLSCAFile  string
+	DockerCertFile   string
+	DockerKeyFile    string
+
 	Tags []string
 }
 
@@ -66,7 +74,15 @@ Examples:
       --auth privatekey --key-file ~/.ssh/id_ed25519
 
   # SSH via agent:
-  mow target add srv03 --type ssh --host 10.0.0.3 --user root --auth agent`,
+  mow target add srv03 --type ssh --host 10.0.0.3 --user root --auth agent
+
+  # Docker over unix socket:
+  mow target add dk-local --type docker --docker-host unix:///var/run/docker.sock
+
+  # Docker over TCP + TLS:
+  mow target add dk-prod --type docker --docker-host tcp://10.0.0.5:2376 \
+      --docker-tls-verify --docker-tls-ca-file ca.pem \
+      --docker-tls-cert-file cert.pem --docker-tls-key-file key.pem`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			o.ID = args[0]
@@ -74,60 +90,118 @@ Examples:
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&o.Type, "type", "ssh", "connection type: ssh")
+	f.StringVar(&o.Type, "type", "ssh", "connection type: ssh / docker")
 	f.StringVar(&o.Name, "name", "", "human readable name")
-	f.StringVar(&o.Host, "host", "", "remote host (required)")
-	f.IntVar(&o.Port, "port", 22, "remote port")
-	f.StringVar(&o.User, "user", "", "remote user (required)")
+	f.StringVar(&o.Host, "host", "", "remote host (ssh only)")
+	f.IntVar(&o.Port, "port", 22, "remote port (ssh only)")
+	f.StringVar(&o.User, "user", "", "remote user (ssh only)")
 
-	f.StringVar(&o.AuthMethod, "auth", "password", "auth method: password / privatekey / agent")
+	f.StringVar(&o.AuthMethod, "auth", "password", "ssh auth method: password / privatekey / agent")
 	f.StringVar(&o.Password, "password", "", "password (prefer --password-file)")
 	f.StringVar(&o.PasswordFile, "password-file", "", "file containing password")
 	f.StringVar(&o.PrivateKeyFile, "key-file", "", "path to private key file (PEM)")
 	f.StringVar(&o.Passphrase, "passphrase", "", "private key passphrase")
 
 	f.StringVar(&o.KnownHostsMode, "known-hosts-mode", "insecure-ignore",
-		"host key check: strict / accept-new / insecure-ignore")
+		"ssh host key check: strict / accept-new / insecure-ignore")
 	f.StringVar(&o.KnownHostsPath, "known-hosts", "", "known_hosts file path")
+
+	// Docker
+	f.StringVar(&o.DockerHost, "docker-host", "", "docker endpoint: unix:// / tcp:// / npipe://")
+	f.StringVar(&o.DockerAPIVersion, "docker-api-version", "", "docker api version, e.g. 1.44")
+	f.BoolVar(&o.DockerTLSVerify, "docker-tls-verify", false, "enable docker TLS verification")
+	f.StringVar(&o.DockerTLSCAFile, "docker-tls-ca-file", "", "path to CA PEM for docker TLS")
+	f.StringVar(&o.DockerCertFile, "docker-tls-cert-file", "", "path to client cert PEM for docker TLS")
+	f.StringVar(&o.DockerKeyFile, "docker-tls-key-file", "", "path to client key PEM for docker TLS")
 
 	f.StringSliceVar(&o.Tags, "tag", nil, "tag in key=value form (repeatable)")
 	return cmd
 }
 
 func runTargetAdd(h *appHolder, o *addOpts) error {
-	if o.Type != "ssh" {
-		return fmt.Errorf("only type=ssh is supported in v0.1, got %q", o.Type)
-	}
 	app, err := h.Load()
 	if err != nil {
 		return err
 	}
-
 	tags, err := parseTags(o.Tags)
 	if err != nil {
 		return err
 	}
 
-	tg := connection.Target{
-		ID:   o.ID,
-		Type: connection.Type(o.Type),
-		Name: o.Name,
-		Host: o.Host,
-		Port: o.Port,
-		User: o.User,
-		Tags: tags,
-	}
+	switch o.Type {
+	case "ssh":
+		tg := connection.Target{
+			ID:   o.ID,
+			Type: connection.TypeSSH,
+			Name: o.Name,
+			Host: o.Host,
+			Port: o.Port,
+			User: o.User,
+			Tags: tags,
+		}
+		creds, err := buildSSHCredentials(o)
+		if err != nil {
+			return err
+		}
+		if err := app.ConnMgr.Upsert(tg, creds); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stdout, "target %q saved (%s@%s:%d)\n", o.ID, o.User, o.Host, o.Port)
+		return nil
 
-	creds, err := buildSSHCredentials(o)
-	if err != nil {
-		return err
-	}
+	case "docker":
+		tg := connection.Target{
+			ID:   o.ID,
+			Type: connection.TypeDocker,
+			Name: o.Name,
+			Tags: tags,
+		}
+		creds, err := buildDockerCredentials(o)
+		if err != nil {
+			return err
+		}
+		if err := app.ConnMgr.Upsert(tg, creds); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stdout, "target %q saved (docker %s)\n", o.ID, creds.Host)
+		return nil
 
-	if err := app.ConnMgr.Upsert(tg, creds); err != nil {
-		return err
+	default:
+		return fmt.Errorf("unsupported --type %q (want ssh / docker)", o.Type)
 	}
-	fmt.Fprintf(os.Stdout, "target %q saved (%s@%s:%d)\n", o.ID, o.User, o.Host, o.Port)
-	return nil
+}
+
+func buildDockerCredentials(o *addOpts) (*connection.DockerCredentials, error) {
+	if o.DockerHost == "" {
+		return nil, fmt.Errorf("--docker-host is required for --type docker")
+	}
+	c := &connection.DockerCredentials{
+		Host:       o.DockerHost,
+		APIVersion: o.DockerAPIVersion,
+		TLSVerify:  o.DockerTLSVerify,
+	}
+	if o.DockerTLSCAFile != "" {
+		data, err := os.ReadFile(o.DockerTLSCAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read docker tls-ca: %w", err)
+		}
+		c.TLSCA = string(data)
+	}
+	if o.DockerCertFile != "" {
+		data, err := os.ReadFile(o.DockerCertFile)
+		if err != nil {
+			return nil, fmt.Errorf("read docker tls-cert: %w", err)
+		}
+		c.TLSCert = string(data)
+	}
+	if o.DockerKeyFile != "" {
+		data, err := os.ReadFile(o.DockerKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("read docker tls-key: %w", err)
+		}
+		c.TLSKey = string(data)
+	}
+	return c, nil
 }
 
 func buildSSHCredentials(o *addOpts) (*connection.SSHCredentials, error) {

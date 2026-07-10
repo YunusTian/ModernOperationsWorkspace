@@ -24,6 +24,7 @@ repo="$(cd "$(dirname "$0")/.." && pwd)"
 modules=(
   "core"
   "plugins/ssh"
+  "plugins/docker"
   "tests/e2e"
 )
 

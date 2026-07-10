@@ -8,6 +8,7 @@ use (
 	./apps/cli
 	./apps/desktop
 	./core
+	./plugins/docker
 	./plugins/ssh
 	./sdk
 	./tests/e2e
