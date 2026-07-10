@@ -9,8 +9,8 @@
 `Core First` · `AI Optional` · `Plugin Everything`
 
 [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](./LICENSE)
-[![Status](https://img.shields.io/badge/status-v0.3_RC_Ready-brightgreen.svg)](./Architecture.md)
-[![Go](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://go.dev)
+[![Status](https://img.shields.io/badge/status-v0.3.1_released-brightgreen.svg)](./CHANGELOG.md)
+[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8.svg)](https://go.dev)
 [![Wails](https://img.shields.io/badge/Wails-v2-DF0000.svg)](https://wails.io)
 
 </div>
@@ -50,38 +50,42 @@ MOW 是一款面向**开发者与运维工程师**的跨平台运维工作台：
 ## 目录结构
 
 ```
-├── docs/            # 架构总纲与各模块 RFC（16 篇）
+├── docs/            # 架构总纲与各模块 RFC（含 workflow / docker-plugin / ai-plugin）
 ├── apps/
-│   ├── desktop/     # Wails 桌面客户端（Terminal / SFTP / Targets）
-│   └── cli/         # Cobra CLI（target / ssh / run / recipe）
-├── core/            # Core 模块（7 子包：包含 workflow）
+│   ├── desktop/     # Wails 桌面客户端（Terminal / SFTP / Targets / Docker Dashboard / Workflow / History）
+│   └── cli/         # Cobra CLI（target / ssh / run / recipe / workflow）
+├── core/            # Core 模块（含 workflow / workflow/history 等 8 个子包）
 │   ├── command/     # Command Engine + Middleware + Audit
-│   ├── connection/  # Connection Manager + Keystore
+│   ├── connection/  # Connection Manager + Keystore（含 docker credentials）
 │   ├── plugin/      # Plugin Manager + Loader
 │   ├── recipe/      # Recipe Registry + Runner
 │   ├── workflow/    # Workflow YAML DSL + Runner + ${var} 插值（v0.2）
+│   │   └── history/ # 执行历史 JSONL 持久化 + 轮转 + 跨进程锁（v0.3 / v0.3.1）
 │   ├── config/      # 配置管理
 │   └── logger/      # 结构化日志
-├── sdk/             # Plugin SDK（gRPC + Protobuf + Go 抽象）
+├── sdk/             # Plugin SDK（gRPC + Protobuf + Go 抽象；含 sdk/ai.go v0.4 Provider 抽象）
 ├── plugins/
-│   └── ssh/         # 官方 SSH Plugin（exec / shell / sftp / ping）
+│   ├── ssh/         # 官方 SSH Plugin（exec / shell / sftp / ping）
+│   ├── docker/      # 官方 Docker Plugin（v0.3：list / inspect / lifecycle / logs / rm / pull / push / exec / images / volumes / networks）
+│   └── ai/          # 官方 AI Plugin（v0.4 骨架：mock provider + list_providers / chat / chat_stream）
 ├── examples/
 │   ├── recipes/
 │   └── workflows/   # deploy-static-site.yaml 等示例
 ├── tests/
-│   └── e2e/         # 端到端测试（含 workflow_e2e_test.go）
+│   └── e2e/         # 端到端测试（SSH E2E + Workflow E2E + Docker E2E · 后者需 MOW_DOCKER_E2E=1）
 └── scripts/         # lint / race / CI 脚本
 ```
 
 ## 文档
 
 - 📘 [Architecture.md](./Architecture.md) — 架构总纲
+- 📝 [CHANGELOG.md](./CHANGELOG.md) — 版本变更日志（v0.1 → v0.3.1 → Unreleased）
 - 📁 [docs/](./docs) — 各模块 RFC 索引
   - [vision](./docs/vision.md) · [design principles](./docs/design-principles.md) · [architecture](./docs/architecture.md)
   - [command engine](./docs/command-engine.md) · [recipe](./docs/recipe.md) · [workflow](./docs/workflow.md)
-  - [plugin system](./docs/plugin-system.md) · [ssh plugin](./docs/ssh-plugin.md) · [connection manager](./docs/connection-manager.md)
+  - [plugin system](./docs/plugin-system.md) · [ssh plugin](./docs/ssh-plugin.md) · [docker plugin](./docs/docker-plugin.md) · [ai plugin](./docs/ai-plugin.md) · [connection manager](./docs/connection-manager.md)
   - [permission](./docs/permission.md) · [observability](./docs/observability.md) · [ai](./docs/ai.md) · [ui](./docs/ui.md)
-  - [roadmap](./docs/roadmap.md) · [v0.1 acceptance checklist](./docs/v0.1-acceptance-checklist.md) · [v0.2 acceptance checklist](./docs/v0.2-acceptance-checklist.md) · [v0.3 acceptance checklist](./docs/v0.3-acceptance-checklist.md)
+  - [roadmap](./docs/roadmap.md) · [v0.1 acceptance](./docs/v0.1-acceptance-checklist.md) · [v0.2 acceptance](./docs/v0.2-acceptance-checklist.md) · [v0.3 acceptance](./docs/v0.3-acceptance-checklist.md)
 
 ## 快速开始
 
@@ -94,22 +98,26 @@ MOW 是一款面向**开发者与运维工程师**的跨平台运维工作台：
 ### 运行
 
 ```powershell
-# 1. 编译 SSH 插件
+# 1. 编译官方插件（SSH / Docker / AI）
 cd plugins/ssh
 go build -o ssh.exe .
+cd ..\docker
+go build -o docker.exe .
+cd ..\ai
+go build -o ai.exe .
 
 # 2. 启动 CLI
 cd ..\..\apps\cli
 go run . --help                  # 查看帮助
-go run . target add my-server \  # 添加 SSH 目标
-  --host 192.168.1.100 \
-  --port 22 \
-  --user root \
+go run . target add my-server `
+  --host 192.168.1.100 `
+  --port 22 `
+  --user root `
   --password mypass
 go run . ssh my-server           # 交互式 SSH Shell
 go run . run my-server uptime    # 单次执行命令
 
-# v0.2：执行一个 Workflow（YAML DSL）
+# v0.2 / v0.3：Workflow（含 v0.3 新增的 parallel / when / retry / on_failure / rollback）
 go run . workflow validate ..\..\examples\workflows\deploy-static-site.yaml
 go run . workflow run ..\..\examples\workflows\deploy-static-site.yaml `
   --target=my-server `
@@ -118,7 +126,11 @@ go run . workflow run ..\..\examples\workflows\deploy-static-site.yaml `
   --input remote_dir=/var/www/hello `
   --input health_port=8080
 
-# 3. 启动桌面客户端
+# v0.3：查看 Workflow 执行历史（JSONL 持久化，支持轮转 + 跨进程锁）
+go run . workflow history list --limit 20
+go run . workflow history show <run-id>
+
+# 3. 启动桌面客户端（含 Terminal / SFTP / Targets / Docker Dashboard / Workflow / History）
 cd ..\desktop
 wails dev
 
@@ -126,6 +138,10 @@ wails dev
 cd ..\..\tests\e2e
 $env:MOW_SSH_PLUGIN = "../../plugins/ssh/ssh.exe"
 go test -count=1 ./...
+# 可选：Docker E2E（需要本机可达的 Docker daemon）
+$env:MOW_DOCKER_E2E = "1"
+$env:MOW_DOCKER_PLUGIN = "../../plugins/docker/docker.exe"
+go test -count=1 -run TestDockerE2E ./...
 ```
 
 ### 运行截图
@@ -148,14 +164,20 @@ go test -count=1 ./...
 **自动化测试通过：76/76 | E2E 通过：23/23 | 手动验收：42/42**  
 详见 [v0.1 验收清单](./docs/v0.1-acceptance-checklist.md)
 
+### 最新交付（v0.3.1 已发布 · v0.4 骨架已合入）
+
+- **v0.3.0**（[CHANGELOG](./CHANGELOG.md#v030---2026-07-10)）：Docker Plugin（unix / tcp / tcp+TLS · 13 条命令）+ Docker Dashboard + Workflow 五批增强（when / retry / on_failure / rollback / parallel / JSONL 历史）
+- **v0.3.1**（[CHANGELOG](./CHANGELOG.md#v031---2026-07-10)）：稳定性补丁 —— `plugins/docker` 覆盖率 **76.0%**；JSONL 轮转 + 保留策略 + 损坏行恢复 + 跨进程锁（`flock` / `LockFileEx`）；Windows `npipe://` 真实实现（go-winio）；TLS `docker.exec` raw-hijack；Docker E2E 接入常规 CI pipeline
+- **v0.4.0 骨架**（[docs/ai-plugin.md](./docs/ai-plugin.md)）：`sdk/ai.go` Provider 抽象 + `plugins/ai` 骨架（mock provider + `ai.list_providers` / `ai.chat` / `ai.chat_stream` · 覆盖率 **76.6%**）；真实 Provider（OpenAI / Anthropic）与 tool-use 闭环留待 v0.4.1
+
 ## Roadmap
 
 | 版本 | 目标 | 状态 |
 | --- | --- | --- |
 | **v0.1** | 优秀的 SSH 客户端 + Plugin Framework 雏形（不接入 AI） | ✅ 已发布 |
 | **v0.2** | Command / Recipe / Workflow Engine（YAML DSL + `${var}` 插值 + Runner） | ✅ 已发布 |
-| **v0.3** | Docker Plugin + Docker Dashboard + Workflow 增强（parallel / when / on_failure / retry / rollback / 执行历史 JSONL） | 🎯 RC 就绪，待发布 |
-| **v0.3.1** | 稳定性补丁：Docker 覆盖率 76.0% · JSONL 轮转+跨进程锁 · Windows npipe（go-winio） · TLS exec raw-hijack · Docker E2E 接入 CI | ✅ 全部完成 |
+| **v0.3** | Docker Plugin + Docker Dashboard + Workflow 增强（parallel / when / on_failure / retry / rollback / 执行历史 JSONL） | ✅ 已发布（v0.3.0） |
+| **v0.3.1** | 稳定性补丁：Docker 覆盖率 76.0% · JSONL 轮转+跨进程锁 · Windows npipe（go-winio） · TLS exec raw-hijack · Docker E2E 接入 CI | ✅ 已发布 |
 | **v0.4** | AI Plugin + Provider 抽象（含 MCP 支持）；v0.4.0 骨架：sdk 抽象 + plugins/ai mock provider + 三条 Command | 🚧 骨架已合入 |
 | **v0.5** | PVE / K8s / DB Plugin + Marketplace 雏形 | 📋 计划中 |
 
