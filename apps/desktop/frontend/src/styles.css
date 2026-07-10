@@ -197,3 +197,165 @@ body,
 .error {
   color: #f48771;
 }
+
+/* Workflow page */
+.wf-page {
+  padding: 16px 20px;
+  overflow: auto;
+  height: 100%;
+}
+.wf-page h2 {
+  margin: 0 0 12px 0;
+  font-size: 18px;
+}
+.wf-dropzone {
+  border: 2px dashed #555;
+  border-radius: 6px;
+  padding: 18px;
+  text-align: center;
+  color: #aaa;
+  background: #262626;
+}
+.wf-dropzone p {
+  margin: 4px 0;
+}
+.wf-picker {
+  color: #6cf;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.wf-picker input {
+  display: none;
+}
+.wf-file {
+  color: #ddd;
+}
+.wf-error {
+  margin: 10px 0;
+  padding: 8px 12px;
+  background: #401515;
+  color: #f88;
+  border-radius: 4px;
+  white-space: pre-wrap;
+}
+.wf-meta {
+  margin-top: 16px;
+  padding: 12px;
+  background: #262626;
+  border-radius: 6px;
+}
+.wf-meta h3 {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+}
+.wf-desc {
+  color: #aaa;
+  background: #1e1e1e;
+  padding: 8px;
+  margin: 6px 0;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+.wf-meta-line {
+  color: #ccc;
+  font-size: 13px;
+  margin: 6px 0;
+}
+.wf-warn {
+  color: #ffb84d;
+}
+.wf-inputs {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+.wf-inputs th,
+.wf-inputs td {
+  padding: 4px 8px;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid #333;
+  font-size: 13px;
+}
+.wf-inputs input {
+  width: 100%;
+  padding: 4px 6px;
+  background: #1e1e1e;
+  color: #ddd;
+  border: 1px solid #444;
+  border-radius: 3px;
+}
+.wf-req {
+  color: #ffb84d;
+}
+.wf-note {
+  color: #888;
+  font-size: 12px;
+}
+.wf-actions {
+  margin-top: 10px;
+  text-align: right;
+}
+.wf-actions button {
+  padding: 6px 16px;
+  background: #0e639c;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.wf-actions button:disabled {
+  background: #555;
+  cursor: not-allowed;
+}
+.wf-logs {
+  margin-top: 14px;
+  padding: 10px;
+  background: #111;
+  color: #ddd;
+  font-family: "Menlo", "Consolas", monospace;
+  font-size: 12.5px;
+  max-height: 40vh;
+  overflow: auto;
+  border-radius: 4px;
+}
+.wf-log {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 2px 0;
+}
+.wf-log-ok .wf-icon {
+  color: #6f6;
+}
+.wf-log-fail .wf-icon {
+  color: #f66;
+}
+.wf-log-running .wf-icon {
+  color: #6cf;
+}
+.wf-icon {
+  width: 12px;
+  text-align: center;
+}
+.wf-step {
+  font-weight: bold;
+}
+.wf-ref {
+  color: #888;
+}
+.wf-dur {
+  color: #aaa;
+}
+.wf-code {
+  color: #ffb84d;
+}
+.wf-msg {
+  color: #f88;
+}
+.wf-summary {
+  margin-top: 10px;
+  padding-top: 6px;
+  border-top: 1px solid #333;
+}

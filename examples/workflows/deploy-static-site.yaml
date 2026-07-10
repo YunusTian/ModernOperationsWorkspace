@@ -1,0 +1,49 @@
+workflow:
+  id: deploy.static-site
+  name: Deploy Static Site
+  description: |
+    最小可运行的静态站点发布 Workflow：
+      1. 备份目标目录
+      2. 上传本地打包目录到远端
+      3. 探测 Nginx 端口做健康检查
+
+    只依赖 ssh.exec，无需额外插件；用于 v0.2 MVP 演示 Workflow 引擎链路。
+
+  inputs:
+    - name: site
+      type: string
+      required: true
+      description: 站点名称（用于目录 / 备份文件命名）
+    - name: local_dir
+      type: string
+      required: true
+      description: 本地待发布目录（绝对路径）
+    - name: remote_dir
+      type: string
+      required: false
+      default: /var/www/site
+      description: 远端网站根目录
+    - name: health_port
+      type: int
+      required: false
+      default: 80
+
+  steps:
+    - id: backup
+      command: ssh.exec
+      params:
+        cmd: "if [ -d ${inputs.remote_dir} ]; then tar -czf /tmp/backup-${inputs.site}.tgz -C ${inputs.remote_dir} .; else mkdir -p ${inputs.remote_dir}; fi"
+      timeout: 60s
+
+    - id: upload
+      command: ssh.exec
+      # 演示用途：ssh.exec 目前不消费 stdin，生产可换成 ssh.sftp.upload。
+      params:
+        cmd: "mkdir -p ${inputs.remote_dir} && echo uploaded ${inputs.site} from ${inputs.local_dir} to ${inputs.remote_dir}"
+      timeout: 60s
+
+    - id: health
+      command: ssh.exec
+      params:
+        cmd: "ss -ltn | grep -q ':${inputs.health_port} ' && echo healthy || echo unhealthy"
+      timeout: 10s

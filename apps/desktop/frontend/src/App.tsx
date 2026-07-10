@@ -2,8 +2,9 @@ import { useState } from "react";
 import TargetsPage from "./pages/TargetsPage";
 import TerminalPage from "./pages/TerminalPage";
 import SftpPage from "./pages/SftpPage";
+import WorkflowPage from "./pages/WorkflowPage";
 
-type Tab = "targets" | "terminal" | "sftp";
+type Tab = "targets" | "terminal" | "sftp" | "workflow";
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("targets");
@@ -36,6 +37,12 @@ export default function App() {
           >
             SFTP {activeTarget && `· ${activeTarget}`}
           </button>
+          <button
+            className={tab === "workflow" ? "active" : ""}
+            onClick={() => setTab("workflow")}
+          >
+            Workflow {activeTarget && `· ${activeTarget}`}
+          </button>
         </nav>
       </aside>
       <main className="main">
@@ -57,6 +64,7 @@ export default function App() {
           <TerminalPage targetID={activeTarget} />
         )}
         {tab === "sftp" && activeTarget && <SftpPage targetID={activeTarget} />}
+        {tab === "workflow" && <WorkflowPage activeTarget={activeTarget} />}
       </main>
     </div>
   );

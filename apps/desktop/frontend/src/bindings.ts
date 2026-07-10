@@ -55,6 +55,51 @@ export type ShellOpenInput = {
   cols?: number;
 };
 
+// -----------------------------------------------------------------------------
+// Workflow
+// -----------------------------------------------------------------------------
+
+export type WorkflowInputVM = {
+  name: string;
+  type: string;
+  required: boolean;
+  default?: unknown;
+  description?: string;
+};
+
+export type WorkflowValidateResult = {
+  ok: boolean;
+  id: string;
+  name: string;
+  description: string;
+  step_count: number;
+  inputs: WorkflowInputVM[];
+};
+
+export type WorkflowRunInput = {
+  session_id: string;
+  yaml: string;
+  target: string;
+  inputs: Record<string, unknown>;
+};
+
+export type WorkflowStepEvent = {
+  phase: "start" | "finish" | "error";
+  index: number;
+  step_id: string;
+  kind: "cmd" | "recipe";
+  ref: string;
+  duration_ms?: number;
+  error_code?: string;
+  error_msg?: string;
+};
+
+export type WorkflowDoneEvent = {
+  ok: boolean;
+  duration_ms: number;
+  error?: string;
+};
+
 // 通过 wails 运行时 (window.go.main.App) 调用方法；
 // 若绑定不存在（如 vite dev 未连上 wails），返回一个明确错误便于排查。
 function call<T = unknown>(name: string, ...args: unknown[]): Promise<T> {
@@ -93,6 +138,10 @@ export const App = {
   ShellResize: (sessionID: string, rows: number, cols: number) =>
     call<void>("ShellResize", sessionID, rows, cols),
   ShellClose: (sessionID: string) => call<void>("ShellClose", sessionID),
+
+  WorkflowValidate: (yamlText: string) =>
+    call<WorkflowValidateResult>("WorkflowValidate", yamlText),
+  WorkflowRun: (in_: WorkflowRunInput) => call<void>("WorkflowRun", in_),
 };
 
 // -----------------------------------------------------------------------------

@@ -75,3 +75,52 @@ workflow:
 - [ ] Workflow 版本化与迁移
 - [ ] 是否支持"人在回路"的手工确认节点
 - [ ] 是否支持代码定义（Go / TS Fluent API）作为 YAML 的补充
+
+## 7. MVP 已实现字段（v0.2）
+
+以下字段已在 `core/workflow` 落地并被 CLI / Desktop 消费；未列出者仍是 Roadmap。
+
+### 7.1 顶层 `workflow`
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | ✅ | 全局唯一标识 |
+| `name` | string |  | 展示名 |
+| `description` | string |  | 多行描述 |
+| `inputs` | `Input[]` |  | 见 7.2 |
+| `steps` | `Step[]` | ✅ | 见 7.3；至少 1 项 |
+
+### 7.2 `inputs[]`
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `name` | string | 必填；同一 workflow 内唯一 |
+| `type` | enum | `string` / `int` / `bool` / `file`；空值等价 `string` |
+| `required` | bool | `true` 时执行前必须提供 |
+| `default` | any | 可选；配合 `required=false` 使用 |
+| `description` | string | 前端表单提示语 |
+
+### 7.3 `steps[]`
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | string | 必填；同一 workflow 内唯一 |
+| `command` | string | 全限定 `<plugin>.<command>`；与 `recipe` 二选一 |
+| `recipe` | string | 内置 recipe id；与 `command` 二选一 |
+| `params` | map | 传给 Command / Recipe 的入参；值可用 `${...}` 插值 |
+| `timeout` | duration | 例：`5s` / `1m30s`；`0` 或缺省走底层默认 |
+
+### 7.4 变量插值
+
+- `${inputs.<name>}` — Workflow 输入
+- `${steps.<id>.out.<field>}` — 已完成步骤的输出（`Step` 成功后其 `Data` 会被反序列化为 `map[string]any` 挂到 `out`）
+- 支持完整 [expr-lang](https://github.com/expr-lang/expr) 表达式：`${inputs.port + 1}`、`${inputs.debug ? "on" : "off"}`
+- 边界：整串仅一个 `${expr}` 保留原始类型；混合形态自动拼字符串；未定义变量报 `InterpolationError` 携带 offset
+
+### 7.5 尚未实现（Roadmap）
+
+- `onFailure` / `rollback` / `retry` / `notify`
+- 分支 / 并行（`parallel: true`、`when: <expr>`）
+- 每 Step 独立 `target`
+- 状态持久化（SQLite）
+- Workflow 版本化 / 迁移

@@ -23,6 +23,7 @@ import (
 	"github.com/mow/mow/core/connection"
 	"github.com/mow/mow/core/logger"
 	"github.com/mow/mow/core/plugin"
+	"github.com/mow/mow/core/recipe"
 	"github.com/mow/mow/sdk"
 	"github.com/mow/mow/sdk/pluginclient"
 )
@@ -45,6 +46,10 @@ type App struct {
 
 	shells sync.Map // sessionID -> *shellSession
 	shellN atomic.Int64
+
+	// Workflow 侧的共享注册表；惰性构造，见 workflow.go: workflowRecipes()。
+	wfMu  sync.Mutex
+	wfReg *recipe.Registry
 }
 
 // NewApp 装配 Logger / Config / ConnMgr / PluginManager / Engine。
