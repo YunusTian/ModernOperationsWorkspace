@@ -34,13 +34,13 @@
 - **Docker Dashboard**（Desktop 新增 Tab）
   - 🔨 **第二阶段（已合入）**：容器列表（含 state 徽标） → inspect 抽屉 → 流式 logs 面板 → start / stop / restart 二次确认弹窗 — 详见 [docker-plugin.md §11](./docker-plugin.md#11-docker-dashboardv03-第二阶段)
   - ⏳ 第三阶段：镜像 / 卷 / 网络 / Compose 视图；`docker.rm` 前置弹窗；容器 exec 交互式终端
-- **Workflow 引擎增强**（分批推进，避免一次交付太大）
+- **Workflow 引擎增强**（分批推进 · v0.3 全部合入 ✅）
   - 🔨 **第一批（已合入）**：`when: <expr>` 条件分支 — 详见 [workflow.md §7.4.1](./workflow.md#741-when-条件分支v03-第一批)
   - 🔨 **第二批（已合入）**：`retry: { max, backoff, max_backoff, exponential }` 单 step 重试 — 详见 [workflow.md §7.4.2](./workflow.md#742-retry-单-step-重试v03-第二批)
   - 🔨 **第三批（已合入）**：执行历史持久化（JSONL 默认后端，`Store` 抽象保留 SQLite 切换空间）— 详见 [workflow.md §7.4.3](./workflow.md#743-执行历史持久化v03-第三批)
   - 🔨 **第四批（已合入）**：`on_failure` / `rollback` 声明式补偿 — 详见 [workflow.md §7.4.4](./workflow.md#744-on_failure--rollback-声明式回滚v03-第四批)
-  - ⏳ 第五批：`parallel: true` 组内并行（最后做——取消传播、资源竞争、事件顺序、审计一致性、测试复杂度显著增加）
-  - v0.4+：单 step 级 `target` 覆盖 / `notify:` 通知 / Workflow 版本化
+  - 🔨 **第五批（已合入）**：`parallel: true` 组内并行（fail-fast、事件序列化、组内禁止 out 互引）— 详见 [workflow.md §7.4.5](./workflow.md#745-parallel-true-组内并行v03-第五批)
+  - v0.4+：单 step 级 `target` 覆盖 / `notify:` 通知 / Workflow 版本化 / `parallel_limit` / 嵌套并行组
 
 ## v0.4 — AI Plugin
 

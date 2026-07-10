@@ -117,6 +117,7 @@ workflow:
 | `when` | string | 可选；expr-lang 表达式，求值为 `false` 时跳过（`Skipped`），求值失败中断 Workflow。**v0.3 第一批已合入** |
 | `retry` | object | 可选；`{ max, backoff, max_backoff, exponential }`，见 §7.4.2。**v0.3 第二批已合入** |
 | `compensate` | object | 可选；`{ command|recipe, params, timeout }`，配合顶层 `on_failure.rollback` 触发。**v0.3 第四批已合入** |
+| `parallel` | bool | 可选；`true` 标记该 step 与相邻 `parallel: true` step 归为一个并发组，见 §7.4.5。**v0.3 第五批已合入** |
 
 ### 7.4 变量插值
 
@@ -316,6 +317,80 @@ workflow:
 
 补偿动作失败通常意味着"能自动做的都做过了"——继续嵌套只会让状态更混乱。当前策略是"记录、继续、通知用户手动介入"，为未来接入 `notify:` 通知渠道留了口子。
 
+#### 7.4.5 `parallel: true` 组内并行（v0.3 第五批）
+
+```yaml
+workflow:
+  id: fanout.health
+  steps:
+    - id: probe
+      command: ssh.exec
+      params: { cmd: "date" }
+
+    # 连续 parallel: true 的 step 归为**同一个**并发组
+    - id: check_web
+      command: ssh.exec
+      params: { cmd: "curl -sf http://localhost/web" }
+      parallel: true
+      retry: { max: 3, backoff: 500ms }
+    - id: check_db
+      command: ssh.exec
+      params: { cmd: "pg_isready -q" }
+      parallel: true
+    - id: check_cache
+      command: ssh.exec
+      params: { cmd: "redis-cli ping" }
+      parallel: true
+
+    # 下一个非 parallel step 会等上面整组完成后再跑
+    - id: report
+      command: ssh.exec
+      params: { cmd: "echo all healthy" }
+```
+
+**归组规则**：
+
+- 声明顺序上**连续**为 `parallel: true` 的 step 归为**同一个**并发组
+- 与前后 `parallel: false` 的 step 之间保持顺序
+- 一组内并发调度，整组结束后再进入下一组（顺序 → 并发 → 顺序 → …）
+- 单个 `parallel: true` 也构成"退化的并发组"（仅一个成员），语义可预测
+
+**失败策略（fail-fast）**：
+
+- 组内任一 step 失败 → 立即 `cancel()` 派生 ctx → 其它并发 step 通过 `ctx.Done()` 收到取消
+- 组内所有已启动 step 都会**等待完成**（可能带取消错误），保证 `Result.Steps` 语义完整
+- 组结束后主流程按声明顺序 emit `PhaseError` / `PhaseFinish` / `PhaseSkip`，然后中断 workflow
+
+**变量作用域约束**（Validate 静态强制）：
+
+- 组内 step **不允许**引用同组兄弟的 `steps.<sibling>.out.*`（并发无序，语义不稳）
+- 引用**前面顺序段**的 out 或 `inputs.*` 完全合法
+- 检查范围：`Params` / `When` / `Compensate.Params`
+- 违规 → `LoadBytes` / `Validate` 直接拒绝
+
+**并发安全承诺**：
+
+- `OnStep` 回调由内部 mutex 序列化，UI 不会看到 race
+- `Result.Steps` **按声明顺序**追加，不是完成顺序 —— 下游代码稳定
+- 每个并发 goroutine 拿到只读 `scope` 快照；成功 step 的 `out` 在组结束后由主协程串行合并进主 scope
+- 通过 `-race` 检测器验证
+
+**与其它特性组合**：
+
+| 组合 | 行为 |
+|---|---|
+| parallel + retry | 每个并发 step 独立重试；一个用尽失败会 fail-fast 取消同组其它 step |
+| parallel + when | 组内某 step 求值 false 直接跳过，不参与并发；其它兄弟照常执行 |
+| parallel + rollback | fail-fast 后，主流程失败触发 rollback；只对**最终成功**的兄弟执行 compensate |
+| parallel + history | Steps 按声明顺序落盘；`Result.Duration` 反映最长 step + 组开销 |
+
+**未纳入本批（后续再谈）**：
+
+- `parallel_limit: N` 并发上限（当前是"整组同时并发"）
+- 嵌套并行组（当前不支持"组中组"）
+- 每 step 独立 `target` 覆盖
+- `on_failure.strategy: continue`（继续其它组）—— 当前只有 fail-fast
+
 ### 7.5 尚未实现（v0.3+）
 
 按 **分批推进** 顺序落地，避免一次交付太大：
@@ -326,7 +401,7 @@ workflow:
 | `retry: { max, backoff, max_backoff, exponential }` | 🔨 **v0.3 第二批（已合入）** | 单 step 重试；fixed / exponential，无 jitter |
 | 执行历史持久化（JSONL） | 🔨 **v0.3 第三批（已合入）** | `<data_dir>/workflow-runs.jsonl`；SQLite 后端后续替换 |
 | `on_failure` / `rollback` | 🔨 **v0.3 第四批（已合入）** | 手动声明式补偿；逆序遍历只回滚成功过的 step，不嵌套、不 retry |
-| `parallel: true` | ⏳ v0.3 第五批 | **最后做**，涉及取消传播、资源竞争、事件顺序、审计一致性、测试复杂度显著上升 |
+| `parallel: true` | 🔨 **v0.3 第五批（已合入）** | 连续 `parallel: true` 归为一组并发；fail-fast 取消同组兄弟；组内禁止 out 互引 |
 | `notify: { channel, target }` | v0.4+ | 邮件 / IM / Webhook 通知 |
 | 每 Step 独立 `target` | v0.4+ | v0.3 仍全 Workflow 共用一个 target |
 | Workflow 版本化 / 迁移 | v0.4+ | 与 Marketplace 联动 |

@@ -59,6 +59,7 @@ type yamlStep struct {
 	When       string          `yaml:"when"`
 	Retry      *yamlRetry      `yaml:"retry"`
 	Compensate *yamlCompensate `yaml:"compensate"`
+	Parallel   bool            `yaml:"parallel"`
 }
 
 // yamlCompensate 是 step.compensate 的 YAML 结构。
@@ -155,11 +156,12 @@ func (y *yamlWorkflow) toWorkflow() (*Workflow, error) {
 		w.Steps = make([]Step, 0, len(y.Steps))
 		for i, ys := range y.Steps {
 			step := Step{
-				ID:      ys.ID,
-				Command: ys.Command,
-				Recipe:  ys.Recipe,
-				Params:  ys.Params,
-				When:    ys.When,
+				ID:       ys.ID,
+				Command:  ys.Command,
+				Recipe:   ys.Recipe,
+				Params:   ys.Params,
+				When:     ys.When,
+				Parallel: ys.Parallel,
 			}
 			if ys.Timeout != "" {
 				d, err := time.ParseDuration(ys.Timeout)

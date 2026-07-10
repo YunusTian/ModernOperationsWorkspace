@@ -18,6 +18,7 @@ package workflow
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -94,6 +95,19 @@ type Step struct {
 	//   - Compensate 内部 command / recipe 二选一，与 Step 声明结构相同
 	//   - Compensate 内部失败不再触发嵌套 rollback；rollback 中的 step 也不 retry
 	Compensate *CompensateAction
+
+	// Parallel 标记该 step 属于一个并行组。
+	//
+	// 归组规则（见 docs/workflow.md §7.4.5）：
+	//   - 声明顺序上**连续**为 true 的 step 归为同一个并行组
+	//   - 与前后 Parallel=false 的 step 之间保持顺序执行
+	//   - 一组内的 step 并发调度，等整组结束再进入下一组
+	//   - fail-fast：组内任一 step 失败会取消同组其它 step 的 ctx
+	//
+	// 变量作用域约束：
+	//   - 组内 step **不允许** 引用同组兄弟的 ${steps.<id>.out.*}
+	//   - Validate 会静态拒绝这类引用，避免并发无序导致的隐性 bug
+	Parallel bool
 }
 
 // CompensateAction 描述一次补偿动作（rollback 时执行）。
@@ -287,6 +301,9 @@ func (w *Workflow) Validate() error {
 	if err := validateOnFailure(w.OnFailure, seen); err != nil {
 		return err
 	}
+	if err := validateParallelGroups(w.Steps); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -336,4 +353,156 @@ func isValidInputType(t InputType) bool {
 		return true
 	}
 	return false
+}
+
+// -----------------------------------------------------------------------------
+// Parallel 组静态校验
+// -----------------------------------------------------------------------------
+
+// ParallelGroup 是一段连续的 step 索引；单元素也是"退化的组"。
+type parallelGroup struct {
+	// Indices 是该组在 Workflow.Steps 中的索引集合（保持声明顺序）。
+	Indices []int
+	// Parallel 表示该组是否真正并发（false = 单个顺序 step）。
+	Parallel bool
+}
+
+// computeGroups 把 Steps 切成"顺序段 + 并行段"。
+//
+// 规则：连续 Parallel=true 的 step 归为一个并行组；单个 Parallel=false 的 step
+// 各自单独成组。返回顺序与 Steps 声明顺序一致。
+func computeGroups(steps []Step) []parallelGroup {
+	if len(steps) == 0 {
+		return nil
+	}
+	var groups []parallelGroup
+	i := 0
+	for i < len(steps) {
+		if !steps[i].Parallel {
+			groups = append(groups, parallelGroup{Indices: []int{i}})
+			i++
+			continue
+		}
+		// 收集连续 Parallel=true
+		j := i
+		for j < len(steps) && steps[j].Parallel {
+			j++
+		}
+		idxs := make([]int, 0, j-i)
+		for k := i; k < j; k++ {
+			idxs = append(idxs, k)
+		}
+		// 单个 Parallel=true 也归为并行组（但只有一个成员时相当于顺序执行；
+		// 特意不做"降级为顺序"的优化，让语义与用户声明一致，便于测试断言）。
+		groups = append(groups, parallelGroup{Indices: idxs, Parallel: true})
+		i = j
+	}
+	return groups
+}
+
+// validateParallelGroups 拒绝组内 step 相互引用 out.* 的场景。
+//
+// 检查范围：Step.Params / Step.When / Step.Compensate.Params 中的字符串。
+// 只做简易子串扫描 `steps.<siblingID>.out`，覆盖 `${...}` 与 when 表达式两处入口。
+// 这不是完整的 expr 语法分析，但足以拦住"最坑"的并发无序引用。
+func validateParallelGroups(steps []Step) error {
+	groups := computeGroups(steps)
+	for _, g := range groups {
+		if !g.Parallel || len(g.Indices) < 2 {
+			continue
+		}
+		// 组内成员的 id 集合
+		members := make(map[string]struct{}, len(g.Indices))
+		for _, idx := range g.Indices {
+			members[steps[idx].ID] = struct{}{}
+		}
+		for _, idx := range g.Indices {
+			s := steps[idx]
+			// 扫描 params / when / compensate.params
+			bad := findSiblingRef(s.Params, members, s.ID)
+			if bad == "" {
+				bad = findSiblingRefStr(s.When, members, s.ID)
+			}
+			if bad == "" && s.Compensate != nil {
+				bad = findSiblingRef(s.Compensate.Params, members, s.ID)
+			}
+			if bad != "" {
+				return fmt.Errorf(
+					"step %q in parallel group references sibling step %q via steps.%s.out (forbidden — parallel order is undefined)",
+					s.ID, bad, bad,
+				)
+			}
+		}
+	}
+	return nil
+}
+
+// findSiblingRef 递归扫描 v（可能是 map / slice / string）中的 "steps.<id>.out" 引用。
+// 命中同组其它成员时返回被引用的 id；否则返回 ""。
+func findSiblingRef(v any, members map[string]struct{}, selfID string) string {
+	switch x := v.(type) {
+	case string:
+		return findSiblingRefStr(x, members, selfID)
+	case map[string]any:
+		for _, val := range x {
+			if id := findSiblingRef(val, members, selfID); id != "" {
+				return id
+			}
+		}
+	case []any:
+		for _, val := range x {
+			if id := findSiblingRef(val, members, selfID); id != "" {
+				return id
+			}
+		}
+	}
+	return ""
+}
+
+// findSiblingRefStr 在字符串里搜 "steps.<id>." 形式的引用。
+//
+// 只要出现同组成员（除自己）就命中；此处不做花括号闭合校验——保守拒绝优于漏网。
+func findSiblingRefStr(s string, members map[string]struct{}, selfID string) string {
+	if s == "" {
+		return ""
+	}
+	const prefix = "steps."
+	i := 0
+	for {
+		idx := indexAt(s, prefix, i)
+		if idx < 0 {
+			return ""
+		}
+		start := idx + len(prefix)
+		// 读取 id：直到 '.', 空白, '}' 或结束
+		end := start
+		for end < len(s) {
+			c := s[end]
+			if c == '.' || c == '}' || c == ' ' || c == '\t' || c == ')' || c == ',' {
+				break
+			}
+			end++
+		}
+		id := s[start:end]
+		if id != "" && id != selfID {
+			if _, ok := members[id]; ok {
+				return id
+			}
+		}
+		i = end
+	}
+}
+
+// indexAt 是 strings.Index 的 offset 版本；避免额外分配。
+func indexAt(s, sub string, from int) int {
+	if from < 0 {
+		from = 0
+	}
+	if from >= len(s) {
+		return -1
+	}
+	if i := strings.Index(s[from:], sub); i >= 0 {
+		return from + i
+	}
+	return -1
 }

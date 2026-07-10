@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -236,47 +237,171 @@ func (r *Runner) Run(ctx context.Context, w *Workflow, opts RunOptions) (*Result
 		r.saveHistory(ctx, res, opts, runErr)
 	}()
 
-	for i, step := range w.Steps {
-		emit(opts.OnStep, StepEvent{Phase: PhaseStart, Index: i, Step: step})
+	// 按并行组 顺序执行；每组内部要么单个顺序、要么并发调度
+	groups := computeGroups(w.Steps)
+	// 预分配 Steps：并发场景下按声明顺序回写，避免 append 竞态。
+	res.Steps = make([]StepResult, len(w.Steps))
+	stepDone := make([]bool, len(w.Steps))
 
-		sr := r.runStep(ctx, i, step, scope, opts)
-		res.Steps = append(res.Steps, sr)
+	// 用一个 mutex 序列化 OnStep 回调与 scope 写入。
+	var mu sync.Mutex
+	var scopeMu sync.Mutex
 
-		if !sr.OK {
-			res.OK = false
-			res.FinishedAt = r.now()
-			res.Duration = res.FinishedAt.Sub(start)
-			cause := errors.New(sr.ErrorMsg)
-			emit(opts.OnStep, StepEvent{
-				Phase: PhaseError, Index: i, Step: step,
-				Result: &res.Steps[len(res.Steps)-1], Err: cause,
-			})
-			runErr = fmt.Errorf("step %q failed: %s", sr.StepID, sr.ErrorMsg)
-			return res, runErr
+	emitLocked := func(ev StepEvent) {
+		if opts.OnStep == nil {
+			return
 		}
+		mu.Lock()
+		defer mu.Unlock()
+		opts.OnStep(ev)
+	}
 
-		// 跳过：不写 scope.Steps.<id>.out（避免后续 step 误引用不存在的字段），
-		// 只广播一次 PhaseSkip 供 UI/CLI 渲染。
-		if sr.Skipped {
-			emit(opts.OnStep, StepEvent{
-				Phase: PhaseSkip, Index: i, Step: step,
-				Result: &res.Steps[len(res.Steps)-1],
+	for _, g := range groups {
+		// 顺序段：单个 step 直接跑
+		if !g.Parallel {
+			i := g.Indices[0]
+			step := w.Steps[i]
+
+			emitLocked(StepEvent{Phase: PhaseStart, Index: i, Step: step})
+			sr := r.runStep(ctx, i, step, scope, opts)
+			res.Steps[i] = sr
+			stepDone[i] = true
+
+			if !sr.OK {
+				res.OK = false
+				res.FinishedAt = r.now()
+				res.Duration = res.FinishedAt.Sub(start)
+				cause := errors.New(sr.ErrorMsg)
+				emitLocked(StepEvent{
+					Phase: PhaseError, Index: i, Step: step,
+					Result: &res.Steps[i], Err: cause,
+				})
+				runErr = fmt.Errorf("step %q failed: %s", sr.StepID, sr.ErrorMsg)
+				// 修剪未执行的空 slot
+				res.Steps = res.Steps[:i+1]
+				return res, runErr
+			}
+			if sr.Skipped {
+				emitLocked(StepEvent{
+					Phase: PhaseSkip, Index: i, Step: step, Result: &res.Steps[i],
+				})
+				continue
+			}
+			scope.Steps[step.ID] = StepScope{Out: decodeOut(sr.Data)}
+			emitLocked(StepEvent{
+				Phase: PhaseFinish, Index: i, Step: step, Result: &res.Steps[i],
 			})
 			continue
 		}
 
-		// 成功：把 out 挂进作用域
-		scope.Steps[step.ID] = StepScope{Out: decodeOut(sr.Data)}
+		// 并行段：fail-fast + 组内 goroutine
+		groupCtx, cancelGroup := context.WithCancel(ctx)
+		var wg sync.WaitGroup
+		wg.Add(len(g.Indices))
+		for _, idx := range g.Indices {
+			idx := idx
+			step := w.Steps[idx]
+			emitLocked(StepEvent{Phase: PhaseStart, Index: idx, Step: step})
+			// 组内 step 使用一个隔离的 OnStep 代理：并发下用 mu 序列化
+			innerOpts := opts
+			innerOpts.OnStep = func(ev StepEvent) {
+				emitLocked(ev)
+			}
+			// scope 只读拷贝：并发只读 inputs / 已完成 steps；组内成员不允许互引（Validate 已拦）
+			scopeMu.Lock()
+			scopeSnapshot := snapshotScope(scope)
+			scopeMu.Unlock()
 
-		emit(opts.OnStep, StepEvent{
-			Phase: PhaseFinish, Index: i, Step: step,
-			Result: &res.Steps[len(res.Steps)-1],
-		})
+			go func() {
+				defer wg.Done()
+				sr := r.runStep(groupCtx, idx, step, scopeSnapshot, innerOpts)
+
+				// 写 result slot
+				res.Steps[idx] = sr
+				stepDone[idx] = true
+
+				// 成功：把 out 挂进 scope（后续组可见）
+				if sr.OK && !sr.Skipped {
+					scopeMu.Lock()
+					scope.Steps[step.ID] = StepScope{Out: decodeOut(sr.Data)}
+					scopeMu.Unlock()
+				}
+				// fail-fast：任一 step 失败立即取消组，避免慢兄弟继续。
+				// 用 cancelGroup 幂等特性；反复 cancel 无副作用。
+				if !sr.OK && !sr.Skipped {
+					cancelGroup()
+				}
+			}()
+		}
+		wg.Wait()
+		cancelGroup()
+
+		// 组结束后按声明顺序 emit Finish/Skip/Error；聚合 error
+		var firstFail *StepResult
+		var firstFailIdx int
+		for _, idx := range g.Indices {
+			step := w.Steps[idx]
+			sr := &res.Steps[idx]
+			switch {
+			case !sr.OK:
+				if firstFail == nil {
+					firstFail = sr
+					firstFailIdx = idx
+				}
+				cause := errors.New(sr.ErrorMsg)
+				emitLocked(StepEvent{
+					Phase: PhaseError, Index: idx, Step: step, Result: sr, Err: cause,
+				})
+			case sr.Skipped:
+				emitLocked(StepEvent{
+					Phase: PhaseSkip, Index: idx, Step: step, Result: sr,
+				})
+			default:
+				emitLocked(StepEvent{
+					Phase: PhaseFinish, Index: idx, Step: step, Result: sr,
+				})
+			}
+		}
+		if firstFail != nil {
+			res.OK = false
+			res.FinishedAt = r.now()
+			res.Duration = res.FinishedAt.Sub(start)
+			// 修剪：并行组之外未执行的 slot；组内即便被 cancel 也保留失败态
+			cut := 0
+			for i := len(res.Steps) - 1; i >= 0; i-- {
+				if stepDone[i] {
+					cut = i + 1
+					break
+				}
+			}
+			if cut < len(res.Steps) {
+				res.Steps = res.Steps[:cut]
+			}
+			runErr = fmt.Errorf("step %q failed: %s", firstFail.StepID, firstFail.ErrorMsg)
+			_ = firstFailIdx
+			return res, runErr
+		}
 	}
 
 	res.FinishedAt = r.now()
 	res.Duration = res.FinishedAt.Sub(start)
 	return res, nil
+}
+
+// snapshotScope 生成一个只读快照，供并行组内的 step 使用。
+//
+// 并行组内不允许互引兄弟 out（Validate 已拦），因此 goroutine 只读快照就够。
+// 主流程的 scope 会在组完成后由主协程串行合并成功 step 的 out。
+func snapshotScope(s Scope) Scope {
+	dup := Scope{
+		Inputs: cloneMap(s.Inputs),
+		Steps:  make(map[string]StepScope, len(s.Steps)),
+	}
+	for k, v := range s.Steps {
+		// 只复制 map 顶层引用；out map 本身在写入后不再修改，浅拷贝安全。
+		dup.Steps[k] = v
+	}
+	return dup
 }
 
 // -----------------------------------------------------------------------------
