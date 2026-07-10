@@ -7,7 +7,8 @@
 //
 // 局限：
 //   - List 需要全文件扫描；到万级行会明显变慢 —— 到时用 SQLite 替换
-//   - 没有事务：并发 Save 靠单进程 sync.Mutex + O_APPEND 保证一行一原子
+//   - 没有事务：单进程 sync.Mutex + 跨进程 flock 保证一行一原子；文件锁失败
+//     视为 advisory-only 环境，静默降级到单进程保护。
 //
 // v0.3.1 增强（本文件）：
 //   - RotateOptions：按字节大小做 append-only 轮转（`.jsonl.1` / `.jsonl.2` ...）
@@ -62,9 +63,9 @@ type RotateOptions struct {
 //
 // 并发：
 //   - 单进程内用 sync.Mutex 序列化 Save / rotate；List / Get 打开新 fd 读，无锁。
-//   - 多进程共享同一文件时可能交叉写入；append-only + 单行 JSON 让"最坏丢一行"，
-//     不会破坏其它行 —— 已足够 v0.3 的观测需求。真正的跨进程文件锁留给 v0.4+
-//     引入 SQLite 时统一解决。
+//   - 多进程共享同一文件：v0.3.1 起 Save 会尝试 flock(LOCK_EX)（Unix）/
+//     LockFileEx（Windows）拿独占锁，写完释放；确保跨进程 append 不出现
+//     行内交错。文件锁失败（例如某些网络文件系统）静默降级到单进程保护。
 type JSONLStore struct {
 	path   string
 	mu     sync.Mutex
@@ -104,6 +105,12 @@ func NewJSONLStoreWithRotate(dir string, rot RotateOptions) (*JSONLStore, error)
 func (s *JSONLStore) Path() string { return s.path }
 
 // Save 追加一条记录。
+//
+// 并发保护有两层：
+//   - 进程内：s.mu.Lock 序列化 Save + rotate
+//   - 跨进程：打开文件后立即 flock(LOCK_EX)（Unix）/ LockFileEx（Windows），
+//     写完 unlock；避免多个 mow 进程共享同一 JSONL 时出现行内交错。
+//     文件锁失败会静默降级（advisory-only 场景 / 特殊文件系统），确保功能不阻塞。
 func (s *JSONLStore) Save(_ context.Context, rec *Record) error {
 	if rec == nil {
 		return errors.New("history: record is nil")
@@ -130,6 +137,15 @@ func (s *JSONLStore) Save(_ context.Context, rec *Record) error {
 		return fmt.Errorf("history: open: %w", err)
 	}
 	defer f.Close()
+
+	// 尝试跨进程文件锁。lockFile 失败视为 advisory-only 环境，
+	// 单进程 mutex 已经保证同进程内 Save 序列化，直接继续写即可。
+	// 但如果拿到了锁，写完必须解锁。
+	locked := lockFile(f) == nil
+	if locked {
+		defer func() { _ = unlockFile(f) }()
+	}
+
 	if _, err := f.Write(buf); err != nil {
 		return fmt.Errorf("history: write: %w", err)
 	}

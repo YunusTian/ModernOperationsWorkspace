@@ -7,8 +7,14 @@
 
 ## [Unreleased]
 
-### v0.3.1 稳定性补丁进行中
+### v0.3.1 稳定性补丁全部完成
 
+- **JSONL 跨进程文件锁**（[core/workflow/history/flock_unix.go](./core/workflow/history/flock_unix.go) + [flock_windows.go](./core/workflow/history/flock_windows.go)）
+  - Unix：`golang.org/x/sys/unix.Flock(fd, LOCK_EX)` 阻塞式独占；进程崩溃时内核自动释放
+  - Windows：`golang.org/x/sys/windows.LockFileEx(handle, LOCKFILE_EXCLUSIVE_LOCK, 0, 0xFFFFFFFF, 0xFFFFFFFF)` 锁整个文件；handle 关闭自动释放
+  - `JSONLStore.Save` 打开 fd 后立即尝试独占锁，写完 defer unlock；文件锁失败静默降级到单进程 mutex 保护（不影响功能）
+  - `golang.org/x/sys` 从 indirect 升为 direct dependency（core module）
+  - 新增 [flock_test.go](./core/workflow/history/flock_test.go)：`TestMain` 检测 `MOW_HISTORY_FLOCK_WORKER=1` 走子进程分支；`TestJSONLStore_CrossProcessSaveNoInterleave` 通过 `os.Executable` 自我 exec 出 4 个 worker 各写 50 条 400+ 字节记录，主进程验证共 200 行 + 每行独立 JSON 可解析
 - **Docker E2E 接入常规 pipeline**（[.github/workflows/ci.yml](./.github/workflows/ci.yml)）
   - `docker-e2e` job 触发条件从"仅 `workflow_dispatch`"扩展为三源：
     - `push:main` → 一律运行，作为主干健康的一级信号
