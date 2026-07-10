@@ -50,16 +50,16 @@
 
 已完成：
 
-- ✅ `plugins/docker` 覆盖率：59.6% → **71.7%**（新增 [coverage_test.go](../plugins/docker/coverage_test.go)：Metadata / Spec / Execute-vs-ExecuteStream 边界 / statusCodeToErrorCode / mapTransportError / buildTLSConfig / classifyRegistryError / mapReadErr / exec pre-guards / postJSON 错误路径 / intToStr）
+- ✅ `plugins/docker` 覆盖率：59.6% → **71.6%**（v0.3.1 目标 ≥70%；新增 [coverage_test.go](../plugins/docker/coverage_test.go)：Metadata / Spec / Execute-vs-ExecuteStream 边界 / statusCodeToErrorCode / mapTransportError / buildTLSConfig / classifyRegistryError / mapReadErr / exec pre-guards / postJSON 错误路径 / intToStr）
 - ✅ Workflow JSONL 历史：
   - 新增 [RotateOptions](../core/workflow/history/jsonl.go)（`MaxBytes` + `MaxKeep`）+ `NewJSONLStoreWithRotate`
   - `readAllWithRotated` 跨主文件 + `.1..N` 轮转文件全读取
   - 抗回归测试：`RotateAndReadAcrossFiles` / `RotateMaxKeepPrunesOldest` / `ConcurrentSaveNoInterleave` / `CorruptLineMixedWithRotatedFile` / `ReadEmptyLinesTolerated` / `RotateNoOpWhenDisabled` / `NegativeMaxKeepClamped`
+- ✅ **Windows `npipe://` 真实实现**：引入 `github.com/Microsoft/go-winio v0.6.2`，拆分平台文件 [npipe_windows.go](../plugins/docker/npipe_windows.go) + [npipe_other.go](../plugins/docker/npipe_other.go)；`newEngineClient` 与 `docker.exec` 均已支持；桌面 `App.DescribeDockerTarget` 依 `runtime.GOOS` 决定 `exec_supported`；`TargetsPage` 输入框转为软提示（不再强拒），保持行为一致的双重护栏
 - ✅ 真实 Docker Engine E2E（v0.3 已合入 [tests/e2e/docker_e2e_test.go](../tests/e2e/docker_e2e_test.go)）覆盖 list / lifecycle / logs / pull / exec / rm
 
 待推进：
 
-- Windows `npipe://` 真实实现（引入 `github.com/Microsoft/go-winio`）
 - Docker `exec` 支持 TLS raw-hijack（在 raw conn 之上叠一次 `tls.Handshake`）
 - E2E 从 `workflow_dispatch` 触发改为常规 pipeline 自动运行（`push:main` + PR 主分支）
 - 跨进程文件锁（`golang.org/x/sys/unix.Flock` + `windows.LockFileEx`）—— 当前单进程内 mutex 已够用，跨进程 append 交叉行由损坏行恢复兜底

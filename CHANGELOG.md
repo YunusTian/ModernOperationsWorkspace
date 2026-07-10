@@ -9,12 +9,21 @@
 
 ### v0.3.1 稳定性补丁进行中
 
-- **`plugins/docker` 覆盖率**：59.6% → **71.7%**（新增 [plugins/docker/coverage_test.go](./plugins/docker/coverage_test.go)）
+- **Windows `npipe://` 真实实现**（[plugins/docker/npipe_windows.go](./plugins/docker/npipe_windows.go) + [npipe_other.go](./plugins/docker/npipe_other.go)）
+  - 引入 `github.com/Microsoft/go-winio v0.6.2`，通过 `winio.DialPipeContext` 拨号；`\\.\pipe\xxx` 与 `//./pipe/xxx` 两种形式均可
+  - 平台文件 build tag 隔离：非 Windows 构建不会引入 winio 依赖，`CGO_ENABLED=0` 跨平台交叉编译保持零 CGO
+  - `plugins/docker/client.go` 的 `newEngineClient` npipe 分支：Windows 装配 DialContext；其它平台返回 `DOCKER_NPIPE_UNSUPPORTED`
+  - `plugins/docker/exec.go` 的 pre-guard：npipe 仅在 `!npipeSupported` 时拒绝（改自 v0.3 的无条件拒绝）
+  - 桌面 [`App.DescribeDockerTarget`](./apps/desktop/docker_stage3.go)：新增 `runtime.GOOS == "windows"` 判定，Windows 客户端 `exec_supported=true`；非 Windows 保留禁用与提示原因
+  - 桌面 [`App.DockerExecOpen`](./apps/desktop/docker_stage3.go)：`npipe && GOOS!=windows` 时拒绝调用（双重防御）
+  - 前端 [`TargetsPage`](./apps/desktop/frontend/src/pages/TargetsPage.tsx)：不再阻止保存 `npipe://` target；输入框下方黄字改为 "npipe:// 仅在 Windows 桌面上可用（v0.3.1）；非 Windows 客户端保存后 exec 会被禁用"
+  - 新增 [`npipe_test.go`](./plugins/docker/npipe_test.go)：跨平台 dial helper 行为断言
+- **`plugins/docker` 覆盖率**：59.6% → **71.6%**（新增 [plugins/docker/coverage_test.go](./plugins/docker/coverage_test.go)）
   - Metadata / Commands / HealthCheck / Init / Shutdown 元信息断言
   - 每个 CommandHandler 的 `Spec()` + `Execute` vs `ExecuteStream` 不支持分支
   - `statusCodeToErrorCode` 全码表 / `mapTransportError` cancel / timeout / retryable 三分支 / `buildTLSConfig` bad CA / bad key / 成功
-  - `newEngineClient` npipe / unknown scheme / unix 构造成功三分支
-  - `docker.exec` TLS 与 npipe 提前拒绝、参数校验（缺 id / 缺 cmd / 反序列化失败）
+  - `newEngineClient` npipe（平台分叉） / unknown scheme / unix 构造成功三分支
+  - `docker.exec` TLS 与 npipe pre-guard、参数校验（缺 id / 缺 cmd / 反序列化失败）
   - `classifyRegistryError` unauthorized / denied / not found / unknown 全分支
   - `mapReadErr` nil / EOF / canceled / timeout / generic 五分支
   - `postJSON` bad body 与 dst=nil 成功路径

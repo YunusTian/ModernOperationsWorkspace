@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -270,9 +271,16 @@ func (a *App) describeDockerTargetInternal(targetID string) (*DockerTargetInfo, 
 	// 判定 exec 能力
 	switch {
 	case info.Scheme == "npipe":
-		info.ExecSupported = false
-		info.ExecUnsupportedReason =
-			"Windows named pipe (npipe://) 尚未实现，计划 v0.3.1 补齐"
+		// v0.3.1：Windows Named Pipe 已经通过 plugins/docker + go-winio 支持。
+		// 非 Windows 客户端上仍然禁用 —— 用户可能在 macOS 上连 Windows Docker Desktop
+		// 的 npipe，但需要在**运行插件的机器上**是 Windows。这里以桌面自身 GOOS 判定。
+		if runtime.GOOS == "windows" {
+			info.ExecSupported = true
+		} else {
+			info.ExecSupported = false
+			info.ExecUnsupportedReason =
+				"Windows named pipe (npipe://) 仅在 Windows 客户端上可用"
+		}
 	case info.Scheme == "tcp" && info.TLSEnabled:
 		info.ExecSupported = false
 		info.ExecUnsupportedReason =
@@ -330,12 +338,12 @@ func (a *App) DockerExecOpen(targetID string, in DockerExecOpenInput) (string, e
 	if len(in.Cmd) == 0 {
 		return "", fmt.Errorf("dashboard: cmd is required")
 	}
-	// v0.3 硬护栏：docker.exec 只支持 unix / plain tcp。
+	// v0.3.1 硬护栏：docker.exec 只支持 unix / plain tcp / (Windows) npipe。
 	// 前端也会预检并禁用 Start 按钮；此处双重防御，防止任何绕过 UI 的直调。
 	// 详见 plugins/docker/exec.go 与 docs/docker-plugin.md §4 / §12.4。
 	if info, err := a.describeDockerTargetInternal(targetID); err == nil && info != nil {
-		if info.Scheme == "npipe" {
-			return "", fmt.Errorf("docker.exec: npipe transport is not supported in this release (v0.3.1)")
+		if info.Scheme == "npipe" && runtime.GOOS != "windows" {
+			return "", fmt.Errorf("docker.exec: npipe transport is only available on Windows")
 		}
 		if info.Scheme == "tcp" && info.TLSEnabled {
 			return "", fmt.Errorf("docker.exec: TLS Docker endpoint is not supported for exec in this release (v0.3.1)")

@@ -198,13 +198,23 @@ func TestBuildTLSConfig_ErrorsAndSuccess(t *testing.T) {
 // client.go：newEngineClient 的分支
 // -----------------------------------------------------------------------------
 
-func TestNewEngineClient_NpipeUnsupported(t *testing.T) {
-	_, err := newEngineClient(&dialTarget{
-		Scheme: "npipe", NetAddr: `\\.\pipe\docker_engine`,
+func TestNewEngineClient_NpipeBranchByPlatform(t *testing.T) {
+	// npipe 分支的两条平台化路径：
+	//   - Windows：newEngineClient 应成功构造出 client（拨号推迟到实际请求）
+	//   - 其它平台：立刻返回 DOCKER_NPIPE_UNSUPPORTED
+	c, err := newEngineClient(&dialTarget{
+		Scheme: "npipe", NetAddr: `//./pipe/docker_engine`,
 	})
-	var se *sdk.Error
-	if !errors.As(err, &se) || se.Code != "DOCKER_NPIPE_UNSUPPORTED" {
-		t.Fatalf("expected DOCKER_NPIPE_UNSUPPORTED, got %v", err)
+	if npipeSupported {
+		if err != nil {
+			t.Fatalf("Windows: expected npipe client to build, got %v", err)
+		}
+		c.closeIdle()
+	} else {
+		var se *sdk.Error
+		if !errors.As(err, &se) || se.Code != "DOCKER_NPIPE_UNSUPPORTED" {
+			t.Fatalf("non-Windows: expected DOCKER_NPIPE_UNSUPPORTED, got %v", err)
+		}
 	}
 }
 
@@ -257,15 +267,27 @@ func TestExecCmd_TLSAndNpipeRejected(t *testing.T) {
 			t.Fatalf("TLS: expected DOCKER_EXEC_TLS_UNSUPPORTED, got %v", err)
 		}
 	}
-	// npipe 分支
+	// npipe 分支：Windows 现在允许通过 pre-guard，其它平台仍拒绝。
+	// Windows 下我们不希望等 dial 真正 timeout（默认 10s），
+	// 给一个短 ctx 让 winio 快速返回失败。
 	{
-		st := newFakeStream(context.Background(),
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		st := newFakeStream(ctx,
 			&sdk.Connection{ID: "dk", Type: "docker", Credentials: rawNpipe},
 			json.RawMessage(params))
-		err := (&execCmd{}).ExecuteStream(context.Background(), st)
+		err := (&execCmd{}).ExecuteStream(ctx, st)
 		var se *sdk.Error
-		if !errors.As(err, &se) || se.Code != "DOCKER_EXEC_NPIPE_UNSUPPORTED" {
-			t.Fatalf("npipe: expected DOCKER_EXEC_NPIPE_UNSUPPORTED, got %v", err)
+		if npipeSupported {
+			// Windows：pre-guard 应放行；后续 dial/HTTP 会失败，但不应
+			// 命中稳定错误码 DOCKER_EXEC_NPIPE_UNSUPPORTED。
+			if errors.As(err, &se) && se.Code == "DOCKER_EXEC_NPIPE_UNSUPPORTED" {
+				t.Fatalf("Windows: pre-guard should NOT reject npipe, got %v", err)
+			}
+		} else {
+			if !errors.As(err, &se) || se.Code != "DOCKER_EXEC_NPIPE_UNSUPPORTED" {
+				t.Fatalf("non-Windows: expected DOCKER_EXEC_NPIPE_UNSUPPORTED, got %v", err)
+			}
 		}
 	}
 }

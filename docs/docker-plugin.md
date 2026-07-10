@@ -43,7 +43,9 @@ Docker Engine 有三种常见暴露方式，本 MVP 一次性覆盖：
 | `tcp://host:2375` | 远端裸 TCP | 不建议生产使用 |
 | `tcp://host:2376` + TLS | 生产远端 | 必须提供 `TLSCA` / `TLSCert` / `TLSKey` 三件套 |
 
-未实现：`ssh://` 隧道模式（v0.4+）、`npipe://`（Windows 命名管道 · v0.3.1 补齐；当前 `DockerCredentials` 白名单允许该 scheme，但**运行时**返回稳定错误码 `DOCKER_NPIPE_UNSUPPORTED`，且 Desktop `TargetsPage` 保存前即拦截并给出提示，UI 层与后端双重防御）、TLS `docker.exec` 的 raw-hijack（v0.3.1 补齐；插件层若检测到 `Scheme=tcp && (TLSVerify||TLSCA!="")` 立即返回 `DOCKER_EXEC_TLS_UNSUPPORTED`；桌面 `DockerExecDrawer` 挂载时通过 `App.DescribeDockerTarget` 探测并禁用 Start 按钮）。
+未实现：`ssh://` 隧道模式（v0.4+）、TLS `docker.exec` 的 raw-hijack（v0.3.1 剩余项；插件层若检测到 `Scheme=tcp && (TLSVerify||TLSCA!="")` 立即返回 `DOCKER_EXEC_TLS_UNSUPPORTED`；桌面 `DockerExecDrawer` 挂载时通过 `App.DescribeDockerTarget` 探测并禁用 Start 按钮）。
+
+**v0.3.1 已支持**：Windows `npipe://`（引入 `github.com/Microsoft/go-winio`，通过 `winio.DialPipeContext` 拨号；`plugins/docker/npipe_{windows,other}.go` 拆平台文件，非 Windows 构建不引入 winio 依赖）。桌面 `App.DescribeDockerTarget` 根据 `runtime.GOOS` 决定 `exec_supported`：Windows 客户端 → true；非 Windows 客户端连 npipe → false + "仅 Windows 客户端上可用"。
 
 ## 5. 凭据模型
 
