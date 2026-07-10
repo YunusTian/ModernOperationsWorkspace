@@ -52,7 +52,7 @@
 - Workflow JSONL 历史：文件锁、轮转 / 保留策略、损坏行恢复策略
 - Windows `npipe://` 真实实现
 - Docker `exec` 支持 TLS raw-hijack
-- 真实 Docker Engine E2E（Linux CI 拉起 daemon）覆盖 list / lifecycle / logs / pull / exec / dangerous rm
+- 真实 Docker Engine E2E **测试代码已合入**（[tests/e2e/docker_e2e_test.go](../tests/e2e/docker_e2e_test.go)），覆盖 list / lifecycle / logs / pull / exec / rm；触发方式：`MOW_DOCKER_E2E=1` + Linux daemon，或 CI `workflow_dispatch → only=docker-e2e/all`。v0.3.1 将改为常规 pipeline 自动运行
 
 ## v0.4 — AI Plugin
 

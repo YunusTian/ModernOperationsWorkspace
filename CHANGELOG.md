@@ -52,7 +52,9 @@ v0.3 主线：**Docker Plugin + Docker Dashboard + Workflow 引擎增强**。完
 ### 变更
 
 - `core/command`：根据 `CommandSpec.InputSchema` 执行 JSON Schema 输入校验，为无效 Schema 与不匹配参数提供稳定错误码
-- CI（`.github/workflows/ci.yml`）：三个 module（core / apps / plugins）逐个 build / vet / test；追加 `plugins/docker` build & test；Desktop 前端强制 `npm ci && npm run build`；Linux + Windows 双矩阵
+- CI（`.github/workflows/ci.yml`）：三个 module（core / apps / plugins）逐个 build / vet / test；追加 `plugins/docker` build & test；Desktop 前端强制 `npm ci && npm run build`；Linux + Windows 双矩阵；新增 **`docker-e2e` job**（`workflow_dispatch → only=docker-e2e/all` 手动触发；Linux 真实 daemon；预编译 plugin 传给测试；`label=mow-e2e=1` 兜底清理）
+- Release（`.github/workflows/release.yml`）：新增 **Docker Plugin 跨 5 平台构建**；每个 `.tar.gz` 生成 `.sha256`，release job 汇总生成 `SHA256SUMS`；`body_path` 按 tag 动态解析（`v0.3.x → docs/v0.3-acceptance-checklist.md`），不再固定指向 v0.1
+- E2E（`tests/e2e`）：新增 [docker_helpers_test.go](./tests/e2e/docker_helpers_test.go) 与 [docker_e2e_test.go](./tests/e2e/docker_e2e_test.go)，覆盖 `docker.list` / lifecycle / `docker.logs` / `docker.pull` / `docker.exec` / `docker.rm` 六个真实 daemon 场景；默认 `t.Skip`，需 `MOW_DOCKER_E2E=1` + 可达 daemon 才实跑
 - 统一所有 Go module、`go.work`、CI 与文档最低 Go 版本至 **1.25**
 - README / Roadmap / docs 状态：v0.3 从"下一版"调整为"RC（发布前修正中）"；`docs/workflow.md` 状态升级为 **Implemented (v0.3)**；`docs/docker-plugin.md` 状态升级为 **Implemented**；新增 [`docs/v0.3-acceptance-checklist.md`](./docs/v0.3-acceptance-checklist.md)
 

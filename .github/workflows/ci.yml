@@ -32,7 +32,7 @@ on:
         required: false
         default: "all"
         type: choice
-        options: ["all", "lint", "test", "race", "gosec"]
+        options: ["all", "lint", "test", "race", "gosec", "docker-e2e"]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -262,3 +262,64 @@ jobs:
           # -exclude-dir 与 -no-fail 分行传，避免 shell 转义问题。
           # G402: InsecureIgnoreHostKey 会在 v0.1 缺省触发；单独在 config 关掉。
           args: -conf .gosec.json ./...
+
+  # ---------------------------------------------------------------------------
+  # docker-e2e：真实 Docker daemon 端到端测试
+  #
+  # 只在 Linux 上跑，且需要显式条件：
+  #   - push 到 main / PR：默认关闭（避免每个 PR 都拉镜像）
+  #   - workflow_dispatch 手动选 only=docker-e2e / all：显式打开
+  #
+  # 运行前提：
+  #   - MOW_DOCKER_E2E=1 让 e2e 用例真正执行（否则 t.Skip）
+  #   - ubuntu-latest 自带 Docker daemon（/var/run/docker.sock 可读）
+  #   - 预编译 plugins/docker 供 e2e 复用（避免测试内每次 build）
+  # ---------------------------------------------------------------------------
+  docker-e2e:
+    name: docker-e2e (linux)
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.only == 'all' || inputs.only == 'docker-e2e') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Docker sanity check
+        run: |
+          docker version
+          docker info | head -30
+          # 提前把 alpine:3.19 拉一次，让 TestDockerE2E_Pull 的 assertion
+          # 只依赖 "已缓存 → up to date" 这条更稳定的路径。
+          docker pull alpine:3.19
+
+      - name: Build docker plugin (reused by e2e)
+        run: |
+          set -euo pipefail
+          cd plugins/docker
+          go build -o "$GITHUB_WORKSPACE/docker-plugin" .
+          ls -la "$GITHUB_WORKSPACE/docker-plugin"
+
+      - name: Run docker E2E tests
+        env:
+          MOW_DOCKER_E2E: "1"
+          MOW_DOCKER_PLUGIN: ${{ github.workspace }}/docker-plugin
+          # 显式指向 daemon；不设 DOCKER_HOST 时也会回落到 /var/run/docker.sock
+          DOCKER_HOST: "unix:///var/run/docker.sock"
+        run: |
+          set -euo pipefail
+          cd tests/e2e
+          # 只跑 Docker 相关用例；SSH E2E 在 test job 已覆盖。
+          go test -count=1 -v -run 'TestDockerE2E' ./...
+
+      - name: Post-cleanup — remove stray e2e containers
+        if: always()
+        run: |
+          # 兜底清理：即便测试自身 t.Cleanup 挂了，也把标签为 mow-e2e=1 的容器清掉
+          ids=$(docker ps -a --filter label=mow-e2e=1 -q || true)
+          if [ -n "$ids" ]; then
+            docker rm -f $ids || true
+          fi
