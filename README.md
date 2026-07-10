@@ -90,19 +90,34 @@ MOW 是一款面向**开发者与运维工程师**的跨平台运维工作台：
 ### 运行
 
 ```powershell
-# CLI
-cd apps/cli
-go run . --help
+# 1. 编译 SSH 插件
+cd plugins/ssh
+go build -o ssh.exe .
 
-# 桌面客户端
-cd apps/desktop
+# 2. 启动 CLI
+cd ..\..\apps\cli
+go run . --help                  # 查看帮助
+go run . target add my-server \  # 添加 SSH 目标
+  --host 192.168.1.100 \
+  --port 22 \
+  --user root \
+  --password mypass
+go run . ssh my-server           # 交互式 SSH Shell
+go run . run my-server uptime    # 单次执行命令
+
+# 3. 启动桌面客户端
+cd ..\desktop
 wails dev
 
-# 运行全部测试
-cd tests/e2e
-$env:MOW_SSH_PLUGIN = "../plugins/ssh/ssh.exe"
+# 4. 运行全部测试
+cd ..\..\tests\e2e
+$env:MOW_SSH_PLUGIN = "../../plugins/ssh/ssh.exe"
 go test -count=1 ./...
 ```
+
+### 运行截图
+
+![MOW Desktop v0.1.0](images/v0.1.0.png)
 
 ### v0.1 交付状态
 

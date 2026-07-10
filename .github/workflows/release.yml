@@ -1,0 +1,143 @@
+# MOW Release Workflow
+#
+# 触发：推送 v* 标签（如 v0.1.0）
+# 行为：
+#   1. 跨平台编译 CLI（mow）、SSH Plugin（mow-ssh-plugin）、Desktop（mow-desktop）
+#   2. 创建 GitHub Release 并上传所有二进制文件
+#
+# 目标平台：
+#   - linux/amd64, linux/arm64
+#   - windows/amd64
+#   - darwin/amd64, darwin/arm64
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: '1.22.x'
+
+jobs:
+  # =========================================================================
+  # 构建所有二进制文件
+  # =========================================================================
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # --- Linux ---
+          - { target: linux,   arch: amd64, goos: linux,   goarch: amd64 }
+          - { target: linux,   arch: arm64, goos: linux,   goarch: arm64 }
+          # --- Windows ---
+          - { target: windows, arch: amd64, goos: windows, goarch: amd64 }
+          # --- macOS ---
+          - { target: darwin,  arch: amd64, goos: darwin,  goarch: amd64 }
+          - { target: darwin,  arch: arm64, goos: darwin,  goarch: arm64 }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build CLI
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="mow${{ matrix.goos == 'windows' && '.exe' || '' }}"
+          tar_name="mow-${{ matrix.target }}-${{ matrix.arch }}.tar.gz"
+          cd apps/cli
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "../../${BIN}" .
+          cd ../..
+          tar -czf "${tar_name}" "${BIN}"
+          echo "CLI_ARCHIVE=${tar_name}" >> $GITHUB_ENV
+
+      - name: Build SSH Plugin
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="mow-ssh-plugin${{ matrix.goos == 'windows' && '.exe' || '' }}"
+          tar_name="mow-ssh-plugin-${{ matrix.target }}-${{ matrix.arch }}.tar.gz"
+          cd plugins/ssh
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "../../${BIN}" .
+          cd ../..
+          tar -czf "${tar_name}" "${BIN}"
+          echo "PLUGIN_ARCHIVE=${tar_name}" >> $GITHUB_ENV
+
+      - name: Build Desktop (skip non-native)
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="mow-desktop${{ matrix.goos == 'windows' && '.exe' || '' }}"
+          tar_name="mow-desktop-${{ matrix.target }}-${{ matrix.arch }}.tar.gz"
+          cd apps/desktop
+          # Wails 桌面端需要 CGO，交叉编译受限于平台能力；
+          # 非原生平台编译可能会跳过（Wails 不支持纯交叉编译）。
+          # 此处仅尝试 go build，失败不阻塞。
+          CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o "../../${BIN}" . 2>/dev/null || true
+          cd ../..
+          if [ -f "${BIN}" ]; then
+            tar -czf "${tar_name}" "${BIN}"
+            echo "DESKTOP_ARCHIVE=${tar_name}" >> $GITHUB_ENV
+          else
+            echo "DESKTOP_ARCHIVE=" >> $GITHUB_ENV
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.target }}-${{ matrix.arch }}
+          path: |
+            *.tar.gz
+          retention-days: 1
+
+  # =========================================================================
+  # 创建 GitHub Release 并上传所有二进制
+  # =========================================================================
+  release:
+    name: release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: docs/v0.1-acceptance-checklist.md
+          files: artifacts/*.tar.gz
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
