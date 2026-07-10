@@ -31,15 +31,21 @@ func (p *fakePlugin) HealthCheck(ctx context.Context) sdk.HealthStatus  { return
 func (p *fakePlugin) Commands() []sdk.CommandHandler                    { return p.cmds }
 
 type staticHandler struct {
-	id         string
-	perm       sdk.Permission
-	streaming  bool
-	err        error
-	dataString string
+	id          string
+	perm        sdk.Permission
+	streaming   bool
+	err         error
+	dataString  string
+	inputSchema json.RawMessage
 }
 
 func (h *staticHandler) Spec() sdk.CommandSpec {
-	return sdk.CommandSpec{ID: h.id, Permission: h.perm, Streaming: h.streaming}
+	return sdk.CommandSpec{
+		ID:          h.id,
+		Permission:  h.perm,
+		Streaming:   h.streaming,
+		InputSchema: h.inputSchema,
+	}
 }
 func (h *staticHandler) Execute(ctx context.Context, r *sdk.ExecuteRequest) (*sdk.ExecuteResponse, error) {
 	if h.err != nil {
@@ -99,6 +105,63 @@ func TestParamValidation(t *testing.T) {
 	var se *sdk.Error
 	if !errors.As(err, &se) || se.Code != "PARAM_INVALID" {
 		t.Errorf("expected sdk.Error PARAM_INVALID, got %v", err)
+	}
+}
+
+func TestParamValidation_RejectsNonObject(t *testing.T) {
+	h := &staticHandler{id: "hello", perm: sdk.PermRead}
+	eng := newEngineWith(t, h, nil, nil)
+
+	_, err := eng.Run(context.Background(), command.Request{
+		PluginID: "demo", CommandID: "hello", Params: json.RawMessage(`["not", "an object"]`),
+	})
+	var se *sdk.Error
+	if !errors.As(err, &se) || se.Code != "PARAM_INVALID" {
+		t.Errorf("expected sdk.Error PARAM_INVALID, got %v", err)
+	}
+}
+
+func TestParamValidation_Schema(t *testing.T) {
+	schema := json.RawMessage(`{
+		"type":"object",
+		"additionalProperties":false,
+		"required":["name","port"],
+		"properties":{
+			"name":{"type":"string","minLength":1},
+			"port":{"type":"integer","minimum":1,"maximum":65535}
+		}
+	}`)
+	h := &staticHandler{id: "hello", perm: sdk.PermRead, inputSchema: schema}
+	eng := newEngineWith(t, h, nil, nil)
+
+	if _, err := eng.Run(context.Background(), command.Request{
+		PluginID: "demo", CommandID: "hello", Params: json.RawMessage(`{"name":"web","port":8080}`),
+	}); err != nil {
+		t.Fatalf("valid params rejected: %v", err)
+	}
+
+	_, err := eng.Run(context.Background(), command.Request{
+		PluginID: "demo", CommandID: "hello", Params: json.RawMessage(`{"name":"","port":70000,"extra":true}`),
+	})
+	var se *sdk.Error
+	if !errors.As(err, &se) || se.Code != "PARAM_SCHEMA_INVALID" {
+		t.Errorf("expected sdk.Error PARAM_SCHEMA_INVALID, got %v", err)
+	}
+}
+
+func TestParamValidation_InvalidSchema(t *testing.T) {
+	h := &staticHandler{
+		id: "hello", perm: sdk.PermRead,
+		inputSchema: json.RawMessage(`{"type":"not-a-real-json-schema-type"}`),
+	}
+	eng := newEngineWith(t, h, nil, nil)
+
+	_, err := eng.Run(context.Background(), command.Request{
+		PluginID: "demo", CommandID: "hello", Params: json.RawMessage(`{}`),
+	})
+	var se *sdk.Error
+	if !errors.As(err, &se) || se.Code != "SCHEMA_INVALID" {
+		t.Errorf("expected sdk.Error SCHEMA_INVALID, got %v", err)
 	}
 }
 

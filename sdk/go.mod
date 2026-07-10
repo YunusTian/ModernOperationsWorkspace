@@ -1,6 +1,6 @@
 module github.com/mow/mow/sdk
 
-go 1.22
+go 1.25.0
 
 require (
 	github.com/fatih/color v1.7.0 // indirect

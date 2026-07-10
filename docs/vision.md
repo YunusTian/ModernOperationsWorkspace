@@ -57,7 +57,7 @@
 
 一句话总结（详见 [architecture.md](./architecture.md)）：
 
-> **Go 1.22+ Core** · **Wails v2 + React/TS Desktop** · **Cobra CLI** · **hashicorp/go-plugin (gRPC)** · **Monorepo + go.work**
+> **Go 1.25+ Core** · **Wails v2 + React/TS Desktop** · **Cobra CLI** · **hashicorp/go-plugin (gRPC)** · **Monorepo + go.work**
 
 ## 8. 待讨论
 

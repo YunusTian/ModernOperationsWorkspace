@@ -1,3 +1,5 @@
+// All workspace modules target the same Go toolchain. Keep this in sync with
+// CI and the minimum version documented in README.md and CONTRIBUTING.md.
 go 1.25.0
 
 // MOW Monorepo workspace

@@ -88,7 +88,7 @@ project/
 
 | 项 | 选型 | 说明 |
 | --- | --- | --- |
-| Core 语言 | **Go 1.22+** | 单二进制、跨平台交叉编译 |
+| Core 语言 | **Go 1.25+** | 单二进制、跨平台交叉编译 |
 | 桌面 UI | **Wails v2** | WebView 内嵌 + Go 后端同进程 |
 | 前端 | **React + TypeScript** | 生态最完整，配合 xterm.js / shadcn/ui |
 | CLI | **Cobra** | 事实标准 |

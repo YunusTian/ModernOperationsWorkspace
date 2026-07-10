@@ -1,6 +1,6 @@
 module github.com/mow/mow/tests/e2e
 
-go 1.23.0
+go 1.25.0
 
 require (
 	github.com/gliderlabs/ssh v0.3.7

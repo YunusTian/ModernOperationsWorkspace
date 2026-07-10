@@ -64,7 +64,7 @@ CommandResult
 
 | 项 | 选型 | 说明 |
 | --- | --- | --- |
-| 实现语言 | **Go 1.22+** | Core module `core/command` |
+| 实现语言 | **Go 1.25+** | Core module `core/command` |
 | 参数 Schema | **JSON Schema** | 与 gRPC + JSON 序列化对齐 |
 | 流式传输 | **gRPC server-stream** | Terminal / Log 跟随天然适配 |
 | 取消传播 | **`context.Context`** | Go 标准实践 |

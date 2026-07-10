@@ -39,7 +39,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.22.x'
+  # Keep in sync with every go.mod, go.work and the documented baseline.
+  GO_VERSION: '1.25.x'
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -114,6 +115,28 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
+  # frontend：Go build 不会编译 Wails 的 React 资源，因此单独验证。
+  # ---------------------------------------------------------------------------
+  frontend:
+    name: frontend build
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.only == 'all' || inputs.only == 'test' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: npm
+          cache-dependency-path: apps/desktop/frontend/package-lock.json
+
+      - name: Build desktop frontend
+        working-directory: apps/desktop/frontend
+        run: |
+          npm ci
+          npm run build
+
+  # ---------------------------------------------------------------------------
   # test：build + unit + e2e
   # ---------------------------------------------------------------------------
   test:
@@ -151,7 +174,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for m in core plugins/ssh sdk tests/e2e; do
+          for m in core apps/cli apps/desktop plugins/ssh sdk tests/e2e; do
             (cd "$m" && go vet ./...)
           done
 
@@ -160,7 +183,10 @@ jobs:
         run: |
           set -euo pipefail
           (cd core && go test -count=1 ./...)
+          (cd apps/cli && go test -count=1 ./...)
+          (cd apps/desktop && go test -count=1 ./...)
           (cd plugins/ssh && go test -count=1 ./...)
+          (cd sdk && go test -count=1 ./...)
 
       - name: Download prebuilt SSH plugin
         uses: actions/download-artifact@v4

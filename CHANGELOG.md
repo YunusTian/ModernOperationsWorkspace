@@ -5,6 +5,14 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Changed
+
+- 为 v0.2.1 统一所有 Go module、`go.work`、CI 与项目文档的最低 Go 版本为 **1.25**。
+- CI 现在会执行 Desktop 前端的 `npm ci && npm run build`，并对 CLI、Desktop、SDK 运行 `go vet` 与 `go test`。
+- Command Engine 根据 `CommandSpec.InputSchema` 执行 JSON Schema 输入校验，并为无效 Schema 与不匹配参数提供稳定错误码。
+
 ## [v0.2.0] - 2026-07-10
 
 ### 新增

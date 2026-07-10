@@ -123,7 +123,7 @@ docs(rfc): update plugin-system with go-plugin decision
 ### Go
 
 - 遵循 `gofmt` / `goimports`
-- 优先使用 Go 1.22+ 语言特性
+- 优先使用 Go 1.25+ 语言特性
 - 错误处理：显式返回 `error`，禁用 `panic` 于业务路径
 - 日志：统一使用 `log/slog` 结构化输出
 - 上下文：所有跨边界调用必须接受 `context.Context`

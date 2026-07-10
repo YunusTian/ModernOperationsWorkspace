@@ -40,7 +40,7 @@ MOW 是一款面向**开发者与运维工程师**的跨平台运维工作台：
 
 | 层 | 选型 |
 | --- | --- |
-| Core | Go 1.22+ |
+| Core | Go 1.25+ |
 | 桌面客户端 | Wails v2 + React + TypeScript + xterm.js + shadcn/ui |
 | CLI | Cobra |
 | Plugin 加载 | [hashicorp/go-plugin](https://github.com/hashicorp/go-plugin)（gRPC 子进程） |
@@ -87,7 +87,7 @@ MOW 是一款面向**开发者与运维工程师**的跨平台运维工作台：
 
 ### 环境要求
 
-- Go 1.22+
+- Go 1.25+
 - Node.js 18+（仅桌面端）
 - [Wails CLI](https://wails.io/docs/gettingstarted/installation)（仅桌面端）
 

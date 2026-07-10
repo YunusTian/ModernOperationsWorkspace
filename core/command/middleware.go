@@ -1,12 +1,15 @@
 package command
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/mow/mow/sdk"
+	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
 // -----------------------------------------------------------------------------
@@ -34,9 +37,8 @@ func chainMiddlewares(final HandlerFunc, mws []Middleware) HandlerFunc {
 // ValidateMiddleware
 // -----------------------------------------------------------------------------
 
-// ValidateMiddleware 校验 Command 参数是否为合法 JSON。
-// v0.1 仅做"是否可解析为 JSON 对象"的最基本校验；
-// JSON Schema 校验将在后续引入（对齐 CommandSpec.InputSchema）。
+// ValidateMiddleware 校验 Command 参数是否为合法 JSON，并在 CommandSpec
+// 声明 InputSchema 时按 JSON Schema 校验其结构。
 func ValidateMiddleware() Middleware {
 	return func(next HandlerFunc) HandlerFunc {
 		return func(ctx context.Context, inv *Invocation) (*Response, error) {
@@ -52,13 +54,36 @@ func validateParams(inv *Invocation) error {
 	if len(inv.Request.Params) == 0 {
 		return nil
 	}
-	// 仅做基本 JSON 可解析校验（对象或 null）
+	// Command 参数必须是 JSON 对象；这与 Request.Params 和插件 Command
+	// 的 map 型输入约定一致，避免把数组或标量传给插件。
 	var m any
 	if err := json.Unmarshal(inv.Request.Params, &m); err != nil {
 		return sdk.NewError("PARAM_INVALID",
 			"parameters are not valid JSON", err)
 	}
-	// TODO(v0.2): 若 inv.Spec.InputSchema 非空，执行 JSON Schema 校验
+	if _, ok := m.(map[string]any); !ok {
+		return sdk.NewError("PARAM_INVALID",
+			"parameters must be a JSON object", nil)
+	}
+	if len(inv.Spec.InputSchema) == 0 {
+		return nil
+	}
+
+	compiler := jsonschema.NewCompiler()
+	const schemaURL = "mow://command-input-schema.json"
+	if err := compiler.AddResource(schemaURL, bytes.NewReader(inv.Spec.InputSchema)); err != nil {
+		return sdk.NewError("SCHEMA_INVALID",
+			"command input schema is not valid JSON Schema", err)
+	}
+	schema, err := compiler.Compile(schemaURL)
+	if err != nil {
+		return sdk.NewError("SCHEMA_INVALID",
+			"command input schema is not valid JSON Schema", err)
+	}
+	if err := schema.Validate(m); err != nil {
+		return sdk.NewError("PARAM_SCHEMA_INVALID",
+			fmt.Sprintf("parameters do not match command input schema: %v", err), err)
+	}
 	return nil
 }
 

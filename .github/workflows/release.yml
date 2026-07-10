@@ -21,7 +21,8 @@ permissions:
   contents: write
 
 env:
-  GO_VERSION: '1.22.x'
+  # Keep in sync with go.work, every go.mod and the documented baseline.
+  GO_VERSION: '1.25.x'
 
 jobs:
   # =========================================================================
