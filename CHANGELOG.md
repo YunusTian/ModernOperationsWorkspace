@@ -9,6 +9,13 @@
 
 ### v0.3.1 稳定性补丁进行中
 
+- **Docker E2E 接入常规 pipeline**（[.github/workflows/ci.yml](./.github/workflows/ci.yml)）
+  - `docker-e2e` job 触发条件从"仅 `workflow_dispatch`"扩展为三源：
+    - `push:main` → 一律运行，作为主干健康的一级信号
+    - `workflow_dispatch` → 保留 `only=all/docker-e2e` 手动开关
+    - `pull_request` → 通过 [dorny/paths-filter@v3](https://github.com/dorny/paths-filter) 只在触及 `plugins/docker/**` / `tests/e2e/docker*_test.go` / `apps/desktop/docker_*.go` / `.github/workflows/ci.yml` 时才跑
+  - 独立 `concurrency: docker-e2e-${github.ref}` group + `cancel-in-progress: true`，防止同一 ref 内两个触发源同时抢 daemon；顶层 `ci-${ref}` 继续管 test/race
+  - `Decide run` step 把 filter 输出翻译为 `gate.outputs.run`；后续所有真实步骤（setup-go / docker pull / build plugin / run e2e）都用 `if: steps.gate.outputs.run == 'true'` 门控；`Post-cleanup` 仍走 `if: always()` 保证兜底清理
 - **TLS `docker.exec` raw-hijack**（[plugins/docker/client.go](./plugins/docker/client.go) `dialHijack` + [exec.go](./plugins/docker/exec.go)）
   - `engineClient` 新增 `tlsCfg *tls.Config` 字段；`newEngineClient` 在 tcp+TLS 分支同时挂给 `http.Transport.TLSClientConfig` 与 `c.tlsCfg`
   - `dialHijack` 拨号后若 `c.tlsCfg != nil` 就在 raw conn 上做 `tls.Client(conn, cfg).HandshakeContext(ctx)`；握手失败返回稳定错误码 `DOCKER_TLS_HANDSHAKE_FAILED`（retryable）

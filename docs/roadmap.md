@@ -57,11 +57,11 @@
   - 抗回归测试：`RotateAndReadAcrossFiles` / `RotateMaxKeepPrunesOldest` / `ConcurrentSaveNoInterleave` / `CorruptLineMixedWithRotatedFile` / `ReadEmptyLinesTolerated` / `RotateNoOpWhenDisabled` / `NegativeMaxKeepClamped`
 - ✅ **Windows `npipe://` 真实实现**：引入 `github.com/Microsoft/go-winio v0.6.2`，拆分平台文件 [npipe_windows.go](../plugins/docker/npipe_windows.go) + [npipe_other.go](../plugins/docker/npipe_other.go)；`newEngineClient` 与 `docker.exec` 均已支持；桌面 `App.DescribeDockerTarget` 依 `runtime.GOOS` 决定 `exec_supported`；`TargetsPage` 输入框转为软提示（不再强拒），保持行为一致的双重护栏
 - ✅ **TLS `docker.exec` raw-hijack**：`engineClient.tlsCfg` 保存 `tls.Config`；`dialHijack` 拨号后在 raw conn 之上做 `tls.Client(conn, cfg).HandshakeContext`，SNI/证书校验用 `buildTLSConfig` 里的 `ServerName`；`exec.go` 移除 TLS pre-guard；桌面 `DescribeDockerTarget` 移除 TLS 禁用分支；新增 [hijack_tls_test.go](../plugins/docker/hijack_tls_test.go) 覆盖成功 + 握手失败两条路径
+- ✅ **Docker E2E 接入常规 pipeline**：[ci.yml](../.github/workflows/ci.yml) 的 `docker-e2e` job 从 `workflow_dispatch` 提升为 `push:main + PR + workflow_dispatch` 三源触发；PR 场景通过 `dorny/paths-filter@v3` 只在触及 `plugins/docker/**` / `tests/e2e/docker*_test.go` / `apps/desktop/docker_*.go` / `ci.yml` 时才跑；独立 `docker-e2e-${github.ref}` concurrency group 防止同 ref 抢 daemon
 - ✅ 真实 Docker Engine E2E（v0.3 已合入 [tests/e2e/docker_e2e_test.go](../tests/e2e/docker_e2e_test.go)）覆盖 list / lifecycle / logs / pull / exec / rm
 
 待推进：
 
-- E2E 从 `workflow_dispatch` 触发改为常规 pipeline 自动运行（`push:main` + PR 主分支）
 - 跨进程文件锁（`golang.org/x/sys/unix.Flock` + `windows.LockFileEx`）—— 当前单进程内 mutex 已够用，跨进程 append 交叉行由损坏行恢复兜底
 
 ## v0.4 — AI Plugin

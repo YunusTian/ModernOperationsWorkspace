@@ -266,9 +266,18 @@ jobs:
   # ---------------------------------------------------------------------------
   # docker-e2e：真实 Docker daemon 端到端测试
   #
-  # 只在 Linux 上跑，且需要显式条件：
-  #   - push 到 main / PR：默认关闭（避免每个 PR 都拉镜像）
-  #   - workflow_dispatch 手动选 only=docker-e2e / all：显式打开
+  # 触发策略（v0.3.1：从 workflow_dispatch 提升为常规 pipeline 的一部分）：
+  #   - push 到 main：一律跑，作为主干健康的一级信号
+  #   - workflow_dispatch：手动 only=all / only=docker-e2e 时跑
+  #   - pull_request：只有当变更触及 docker 相关路径时才跑
+  #       * plugins/docker/** —— 插件本体
+  #       * tests/e2e/docker*_test.go —— e2e 用例
+  #       * apps/desktop/docker_*.go —— 桌面绑定
+  #       * .github/workflows/ci.yml —— 本工作流本身
+  #     这避免了无关 PR（例如仅动 CLI 文档）也要拉镜像 + 拉起 daemon。
+  #
+  # 并发：docker-e2e 使用独立的 concurrency group，防止同一 ref 内两个
+  # 触发源（push+dispatch）同时抢 daemon；顶层 ci-${ref} 已管 test/race。
   #
   # 运行前提：
   #   - MOW_DOCKER_E2E=1 让 e2e 用例真正执行（否则 t.Skip）
@@ -277,18 +286,67 @@ jobs:
   # ---------------------------------------------------------------------------
   docker-e2e:
     name: docker-e2e (linux)
-    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.only == 'all' || inputs.only == 'docker-e2e') }}
+    # 允许所有触发进入 job；PR 场景由 filter step 决定各真实步骤是否跳过。
+    if: |
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.only == 'all' || inputs.only == 'docker-e2e'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    concurrency:
+      group: docker-e2e-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
 
+      # v0.3.1：PR 中做变更路径过滤；push/dispatch 一律 should_run=true。
+      # dorny/paths-filter 已在市面广泛使用；仅在 pull_request 事件里读 diff。
+      - name: Filter changed paths (PR only)
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            docker:
+              - 'plugins/docker/**'
+              - 'tests/e2e/docker*_test.go'
+              - 'tests/e2e/*docker*.go'
+              - 'apps/desktop/docker_*.go'
+              - 'apps/desktop/frontend/src/pages/DockerExecDrawer.tsx'
+              - 'apps/desktop/frontend/src/pages/DockerPage.tsx'
+              - '.github/workflows/ci.yml'
+
+      # 决定是否真正运行：push / workflow_dispatch → 一律 true；
+      #                    pull_request → 依 filter 结果。
+      - name: Decide run
+        id: gate
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          DOCKER_CHANGED: ${{ steps.filter.outputs.docker }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request" ]; then
+            if [ "$DOCKER_CHANGED" = "true" ]; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              echo "PR touches docker-related paths → running docker-e2e"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "PR does NOT touch docker paths → skipping docker-e2e"
+            fi
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-go@v5
+        if: steps.gate.outputs.run == 'true'
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Docker sanity check
+        if: steps.gate.outputs.run == 'true'
         run: |
           docker version
           docker info | head -30
@@ -297,6 +355,7 @@ jobs:
           docker pull alpine:3.19
 
       - name: Build docker plugin (reused by e2e)
+        if: steps.gate.outputs.run == 'true'
         run: |
           set -euo pipefail
           cd plugins/docker
@@ -304,6 +363,7 @@ jobs:
           ls -la "$GITHUB_WORKSPACE/docker-plugin"
 
       - name: Run docker E2E tests
+        if: steps.gate.outputs.run == 'true'
         env:
           MOW_DOCKER_E2E: "1"
           MOW_DOCKER_PLUGIN: ${{ github.workspace }}/docker-plugin
@@ -316,10 +376,11 @@ jobs:
           go test -count=1 -v -run 'TestDockerE2E' ./...
 
       - name: Post-cleanup — remove stray e2e containers
+        # always()：无论 run/skip 都尝试清理（skip 时无容器可清，最坏无 op）
         if: always()
         run: |
           # 兜底清理：即便测试自身 t.Cleanup 挂了，也把标签为 mow-e2e=1 的容器清掉
-          ids=$(docker ps -a --filter label=mow-e2e=1 -q || true)
+          ids=$(docker ps -a --filter label=mow-e2e=1 -q 2>/dev/null || true)
           if [ -n "$ids" ]; then
             docker rm -f $ids || true
           fi

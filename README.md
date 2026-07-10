@@ -155,7 +155,7 @@ go test -count=1 ./...
 | **v0.1** | 优秀的 SSH 客户端 + Plugin Framework 雏形（不接入 AI） | ✅ 已发布 |
 | **v0.2** | Command / Recipe / Workflow Engine（YAML DSL + `${var}` 插值 + Runner） | ✅ 已发布 |
 | **v0.3** | Docker Plugin + Docker Dashboard + Workflow 增强（parallel / when / on_failure / retry / rollback / 执行历史 JSONL） | 🎯 RC 就绪，待发布 |
-| **v0.3.1** | 稳定性补丁：Docker 覆盖率 76.0% · JSONL 轮转+保留策略+损坏行恢复 · Windows npipe（go-winio） · TLS exec raw-hijack | 🚧 进行中 |
+| **v0.3.1** | 稳定性补丁：Docker 覆盖率 76.0% · JSONL 轮转+保留策略+损坏行恢复 · Windows npipe（go-winio） · TLS exec raw-hijack · Docker E2E 接入 CI | 🚧 进行中 |
 | **v0.4** | AI Plugin + Provider 抽象（含 MCP 支持） | 📋 计划中 |
 | **v0.5** | PVE / K8s / DB Plugin + Marketplace 雏形 | 📋 计划中 |
 
