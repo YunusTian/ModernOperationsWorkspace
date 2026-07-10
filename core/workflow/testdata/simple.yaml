@@ -1,0 +1,33 @@
+workflow:
+  id: deploy.dotnet
+  name: Deploy .NET Service
+  description: 上传包 -> 停服 -> 备份 -> 启动 -> 健康检查
+  inputs:
+    - name: package
+      type: file
+      required: true
+      description: 待部署的发布包
+    - name: service
+      type: string
+      required: true
+      default: myapp
+  steps:
+    - id: upload
+      command: ssh.upload
+      params:
+        file: ${package}
+        dest: /opt/app/
+    - id: stop
+      command: ssh.exec
+      params:
+        cmd: systemctl stop ${service}
+      timeout: 5s
+    - id: backup
+      recipe: file.backup
+    - id: start
+      command: ssh.exec
+      params:
+        cmd: systemctl start ${service}
+    - id: health
+      recipe: http.healthcheck
+      timeout: 30s
