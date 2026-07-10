@@ -156,7 +156,7 @@ go test -count=1 ./...
 | **v0.2** | Command / Recipe / Workflow Engine（YAML DSL + `${var}` 插值 + Runner） | ✅ 已发布 |
 | **v0.3** | Docker Plugin + Docker Dashboard + Workflow 增强（parallel / when / on_failure / retry / rollback / 执行历史 JSONL） | 🎯 RC 就绪，待发布 |
 | **v0.3.1** | 稳定性补丁：Docker 覆盖率 76.0% · JSONL 轮转+跨进程锁 · Windows npipe（go-winio） · TLS exec raw-hijack · Docker E2E 接入 CI | ✅ 全部完成 |
-| **v0.4** | AI Plugin + Provider 抽象（含 MCP 支持） | 📋 计划中 |
+| **v0.4** | AI Plugin + Provider 抽象（含 MCP 支持）；v0.4.0 骨架：sdk 抽象 + plugins/ai mock provider + 三条 Command | 🚧 骨架已合入 |
 | **v0.5** | PVE / K8s / DB Plugin + Marketplace 雏形 | 📋 计划中 |
 
 详见 [docs/roadmap.md](./docs/roadmap.md)。

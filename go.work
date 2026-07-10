@@ -8,6 +8,7 @@ use (
 	./apps/cli
 	./apps/desktop
 	./core
+	./plugins/ai
 	./plugins/docker
 	./plugins/ssh
 	./sdk

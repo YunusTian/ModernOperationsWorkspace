@@ -63,13 +63,30 @@
 
 **v0.3.1 全部完成 —— 可以打 tag 发布。**
 
-## v0.4 — AI Plugin
+## v0.4 — AI Plugin 🚧 骨架已合入
 
-- AI Plugin（作为独立 Plugin）
-- Provider 抽象（ChatGPT / Claude / Gemini / Qwen / DeepSeek / Local）
-- MCP 支持
-- AI 只能调用已有 Recipe / Workflow / Command
-- 通知 Provider（Webhook / Email / IM）
+**v0.4.0 骨架**（本次交付）：
+
+- ✅ `sdk/ai.go`：新增 [Provider / ChatMessage / ChatRequest / ChatResponse / ToolCall / ToolSpec / ChatStreamSink](../sdk/ai.go) 等抽象；字段命名对齐 OpenAI 兼容 API 惯例，便于真实 provider 直接透传
+- ✅ [`plugins/ai`](../plugins/ai/) 新 module：
+  - `main.go`：`AIPlugin` + Settings `providers[]` 装配；默认自带 `mock` provider（离线可用）
+  - `providers.go`：`mockProvider` 实现 Chat / ChatStream；输出前缀 `[mock] `
+  - `commands.go`：三条 Command —— `ai.list_providers` / `ai.chat` / `ai.chat_stream`
+  - `commands_test.go`：覆盖率 **76.6%**，含 Init 装配 / 未知 kind / 重复 name / 稳定顺序 / echo 主路径 / 参数校验 / 未知 provider / stream delta+finish 等
+- ✅ [docs/ai-plugin.md](./ai-plugin.md)：v0.4 设计文档
+- ✅ [go.work](../go.work) 追加 `plugins/ai`；[ci.yml](../.github/workflows/ci.yml) 三个 build/vet/test 循环全部纳入
+
+**v0.4.1 承接**：
+
+- 真实 Provider：OpenAI / Anthropic（含 rate limit / retry / rate-limited 错误码）
+- **tool-use 闭环**：`chat_stream` 检测 `ToolCall` → 借 Command Engine 执行 → 结果以 `role=tool` 消息回喂 provider 续写；Dangerous 命令仍走 `Confirmed=true` 二次确认
+- Desktop AI Chat 面板（简单版）
+
+**v0.5 承接**：
+
+- MCP Server / Client 双向对接（既能作为 MCP 客户端调外部 MCP Server，也能把 MOW 自己的 Command 暴露成 MCP Server）
+- Embedding / vector store（RAG）
+- 通知 Provider（Webhook / Email / IM）作为独立 plugin
 
 ## v0.5 — 扩展生态
 

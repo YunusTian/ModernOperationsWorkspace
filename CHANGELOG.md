@@ -7,6 +7,29 @@
 
 ## [Unreleased]
 
+### v0.4.0 AI Plugin 骨架
+
+- **`sdk/ai.go`**（新增，[sdk/ai.go](./sdk/ai.go)）：定义 AI Provider 抽象
+  - `Provider` 接口：`Name()` / `Capabilities()` / `Chat()` / `ChatStream()`
+  - `ProviderCapabilities`：Chat / ChatStream / ToolCalls / Models
+  - `ChatMessage` / `ChatRequest` / `ChatResponse` / `ChatUsage`：字段命名对齐 OpenAI 兼容 API 惯例
+  - `ToolCall` / `ToolSpec`：tool-use / function calling 契约（v0.4.1 补齐闭环）
+  - `ChatStreamSink` 回调三元组：`OnDelta` / `OnToolCall` / `OnFinish`
+  - `RoleXxx` / `FinishXxx` 字符串常量，避免拼写错误
+- **`plugins/ai`**（新 module，[plugins/ai/](./plugins/ai/)）：
+  - [main.go](./plugins/ai/main.go)：`AIPlugin` + Settings `providers[]` 装配；未配置时默认挂 `mock`，保证 `ai.list_providers` 至少返回一项
+  - [providers.go](./plugins/ai/providers.go)：`mockProvider` 实现 Chat / ChatStream，输出前缀 `[mock] `，逐 4 字符切片模拟流式；无网络依赖
+  - [commands.go](./plugins/ai/commands.go)：三条 Command
+    - `ai.list_providers`（Read）：按 name 升序列出 provider + capabilities
+    - `ai.chat`（Read）：一次性对话；缺 messages / 未知 provider / capability 缺失均返稳定错误码
+    - `ai.chat_stream`（Execute + Streaming）：`streamSink` 把 `OnDelta` → `Stdout`、`OnToolCall` → `Event`、`OnFinish` → `Finish`
+  - [commands_test.go](./plugins/ai/commands_test.go)：覆盖率 **76.6%**，10+ 测试覆盖 Init 装配 / 未知 kind / 重复 name / name 默认 / 稳定顺序 / echo 主路径 / 参数校验 / 未知 provider / ExecuteStream 边界 / stream delta+finish
+  - [go.mod](./plugins/ai/go.mod)：仅依赖 `mow/sdk`，与其它 plugin 一致
+- **配套**：
+  - [go.work](./go.work) 追加 `./plugins/ai`
+  - [.github/workflows/ci.yml](./.github/workflows/ci.yml) 三个循环（build / vet / test）纳入 `plugins/ai`
+  - [docs/ai-plugin.md](./docs/ai-plugin.md)：v0.4 设计文档（分层 / 命令 / 权限 / v0.4.0/0.4.1/0.5 交付范围）
+
 ### v0.3.1 稳定性补丁全部完成
 
 - **JSONL 跨进程文件锁**（[core/workflow/history/flock_unix.go](./core/workflow/history/flock_unix.go) + [flock_windows.go](./core/workflow/history/flock_windows.go)）
