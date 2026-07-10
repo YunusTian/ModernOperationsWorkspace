@@ -13,6 +13,7 @@
 //	mow target add|list|rm         管理 Connection Target
 //	mow run <plugin>.<cmd>         通过 Command Engine 执行
 //	mow recipe list|run <id>       列出 / 执行内置 Recipe
+//	mow workflow validate|run      解析并执行 Workflow YAML
 package main
 
 import (
@@ -51,6 +52,7 @@ func newRootCmd() *cobra.Command {
 		newTargetCmd(appHolder),
 		newRunCmd(appHolder),
 		newRecipeCmd(appHolder),
+		newWorkflowCmd(appHolder),
 		newSSHCmd(appHolder),
 	)
 	return root
