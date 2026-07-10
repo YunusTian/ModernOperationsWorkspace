@@ -15,6 +15,7 @@ export type TargetVM = {
   host: string;
   port: number;
   user: string;
+  display_host: string;
   tags: Record<string, string>;
   created_at: string;
   updated_at: string;
@@ -33,6 +34,18 @@ export type UpsertSSHTargetInput = {
   passphrase?: string;
   known_hosts_mode?: "strict" | "accept-new" | "insecure-ignore";
   known_hosts_path?: string;
+};
+
+export type UpsertDockerTargetInput = {
+  id: string;
+  name?: string;
+  tags?: Record<string, string>;
+  host: string;
+  api_version?: string;
+  tls_verify?: boolean;
+  tls_ca?: string;
+  tls_cert?: string;
+  tls_key?: string;
 };
 
 export type SFTPEntry = {
@@ -100,6 +113,79 @@ export type WorkflowDoneEvent = {
   error?: string;
 };
 
+// -----------------------------------------------------------------------------
+// Docker Dashboard
+// -----------------------------------------------------------------------------
+
+export type DockerPort = {
+  ip?: string;
+  private_port: number;
+  public_port?: number;
+  type?: string;
+};
+
+export type DockerContainerVM = {
+  id: string;
+  names: string[];
+  image: string;
+  image_id?: string;
+  command?: string;
+  created?: number;
+  state: string;
+  status?: string;
+  ports?: DockerPort[];
+  labels?: Record<string, string>;
+};
+
+export type DockerListResult = {
+  containers: DockerContainerVM[];
+  audit_id: string;
+};
+
+export type DockerListInput = {
+  all?: boolean;
+  limit?: number;
+  labels?: Record<string, string>;
+};
+
+export type DockerInspectResult = {
+  audit_id: string;
+  raw: unknown;
+};
+
+export type DockerLifecycleAction = "start" | "stop" | "restart";
+
+export type DockerLifecycleInput = {
+  action: DockerLifecycleAction;
+  container: string;
+  timeout_sec?: number;
+  confirmed: boolean;
+};
+
+export type DockerLifecycleResult = {
+  audit_id: string;
+  id: string;
+  action: string;
+  already_in_state: boolean;
+};
+
+export type DockerLogsInput = {
+  container: string;
+  follow?: boolean;
+  tail?: string;
+  stdout?: boolean;
+  stderr?: boolean;
+  timestamps?: boolean;
+  since?: number;
+  until?: number;
+  tty?: boolean;
+};
+
+export type DockerLogsExitEvent = {
+  audit_id?: string;
+  error?: string;
+};
+
 // 通过 wails 运行时 (window.go.main.App) 调用方法；
 // 若绑定不存在（如 vite dev 未连上 wails），返回一个明确错误便于排查。
 function call<T = unknown>(name: string, ...args: unknown[]): Promise<T> {
@@ -121,6 +207,8 @@ export const App = {
   ListTargets: () => call<TargetVM[]>("ListTargets"),
   UpsertSSHTarget: (in_: UpsertSSHTargetInput) =>
     call<void>("UpsertSSHTarget", in_),
+  UpsertDockerTarget: (in_: UpsertDockerTargetInput) =>
+    call<void>("UpsertDockerTarget", in_),
   DeleteTarget: (id: string) => call<void>("DeleteTarget", id),
   PingTarget: (id: string) => call<string>("PingTarget", id),
 
@@ -142,6 +230,17 @@ export const App = {
   WorkflowValidate: (yamlText: string) =>
     call<WorkflowValidateResult>("WorkflowValidate", yamlText),
   WorkflowRun: (in_: WorkflowRunInput) => call<void>("WorkflowRun", in_),
+
+  DockerList: (targetID: string, in_: DockerListInput) =>
+    call<DockerListResult>("DockerList", targetID, in_),
+  DockerInspect: (targetID: string, containerID: string) =>
+    call<DockerInspectResult>("DockerInspect", targetID, containerID),
+  DockerLifecycle: (targetID: string, in_: DockerLifecycleInput) =>
+    call<DockerLifecycleResult>("DockerLifecycle", targetID, in_),
+  DockerLogsOpen: (targetID: string, in_: DockerLogsInput) =>
+    call<string>("DockerLogsOpen", targetID, in_),
+  DockerLogsClose: (sessionID: string) =>
+    call<void>("DockerLogsClose", sessionID),
 };
 
 // -----------------------------------------------------------------------------

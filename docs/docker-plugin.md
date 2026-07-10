@@ -1,9 +1,9 @@
 # RFC: Docker Plugin
 
-- 状态：Draft（v0.3 第一阶段落地）
+- 状态：Draft（v0.3 第一 + 第二阶段落地）
 - 版本：v0.3
 - 更新日期：2026-07-10
-- 相关章节：[roadmap.md § v0.3](./roadmap.md#v03--docker-plugin--docker-dashboard--下一版) · [plugin-system.md](./plugin-system.md) · [permission.md](./permission.md)
+- 相关章节：[roadmap.md § v0.3](./roadmap.md#v03--docker-plugin--docker-dashboard--下一版) · [plugin-system.md](./plugin-system.md) · [permission.md](./permission.md) · [ui.md](./ui.md)
 
 ---
 
@@ -135,15 +135,73 @@ mow run docker.restart --target dk-local --param id=nginx
 
 - E2E：留待 v0.3 第二阶段（Desktop Dashboard 一起做）；本阶段单测足以证明 wire 正确。
 
-## 10. 未纳入本阶段（v0.3 第二阶段承接）
+## 10. 未纳入本阶段（v0.3 第三阶段 / v0.4 承接）
 
-- `docker.rm` / `docker.kill` / `docker.pull` / `docker.push` / `docker.exec`
-- Docker Dashboard 前端
-- Docker Recipe / Workflow
+- 第一阶段之外的插件 Command：`docker.rm` / `docker.kill` / `docker.pull` / `docker.push` / `docker.exec`
+- 镜像 / 卷 / 网络 / Compose 视图（Dashboard 第三阶段）
 - Workflow 与 Docker 联动的 `on_failure` / `retry` / `parallel` / `when`
 - `ssh://` 隧道模式的 Docker Host
+- Docker Recipe / Workflow 模板
 
-## 11. 待讨论
+## 11. Docker Dashboard（v0.3 第二阶段）
+
+Dashboard 是 Docker Plugin 在桌面客户端的 UI 门面。设计原则："以容器列表 → inspect → logs → 明确确认后操作为主路径"，不铺开镜像 / 卷 / 网络 / Compose。
+
+### 11.1 主路径（严格顺序）
+
+```
+Targets 页
+  └── 选中 Docker 类型 target → 侧栏 Docker tab 亮起
+       │
+       ▼
+    容器列表（DockerList，all=true 默认，可切换过滤 exited）
+       │
+       ├── 点击行 → Inspect 抽屉（DockerInspect，只读 JSON）
+       │
+       ├── 点击 Logs → 底部 Logs 面板（DockerLogsOpen）
+       │        · 事件：docker:logs:<sid>:stdout|:stderr|:exit
+       │        · 面板关闭 / 切换容器 → DockerLogsClose 主动收尾
+       │
+       └── 点击 Start / Stop / Restart
+                · 弹窗弹出，展示 command + container + audit 铭牌
+                · 用户按下 Confirm → DockerLifecycle(confirmed=true)
+                · 后端在 Confirmed=false 时直接拒绝（应用层护栏）
+```
+
+### 11.2 权限与二次确认
+
+- 生命周期动作（start / stop / restart）的插件权限是 `Execute`，Command Engine 的 Dangerous 二次确认不会触发
+- 桌面客户端的 `Confirm` 是 `command.AllowConfirmer{}`（Engine 层不拦），因此 UI 必须自己弹窗
+- `DockerLifecycle` 后端强制校验 `Confirmed=true`：任何绕过 UI 的直接调用都会被拒绝
+
+### 11.3 后端 API（Wails 绑定）
+
+| 方法 | 说明 |
+|---|---|
+| `App.UpsertDockerTarget(in)` | 保存 Docker Target（host / api_version / TLS） |
+| `App.DockerList(targetID, {all, limit, labels})` | 列容器 |
+| `App.DockerInspect(targetID, containerID)` | 单个容器详情（原样 JSON） |
+| `App.DockerLifecycle(targetID, {action, container, timeout_sec, confirmed})` | start / stop / restart |
+| `App.DockerLogsOpen(targetID, {container, follow, tail, ...})` → `sessionID` | 打开流式日志 |
+| `App.DockerLogsClose(sessionID)` | 主动关闭 |
+
+### 11.4 事件
+
+| Event | Payload | 说明 |
+|---|---|---|
+| `docker:logs:<sid>:stdout` | `base64(bytes)` | 单帧 stdout |
+| `docker:logs:<sid>:stderr` | `base64(bytes)` | 单帧 stderr |
+| `docker:logs:<sid>:exit` | `{ audit_id, error? }` | 流式结束 / 出错 |
+
+### 11.5 未纳入 Dashboard（第三阶段承接）
+
+- 镜像 / 卷 / 网络 视图
+- Compose 支持
+- 容器创建（`docker.create`）与 `docker.rm` 前置弹窗
+- 容器 exec 交互式终端（复用 Terminal xterm.js）
+- 容器资源统计（`/containers/{id}/stats`）
+
+## 12. 待讨论
 
 - [ ] `docker.list` 是否要暴露完整 `filters` 语法（当前只支持 `labels`）
 - [ ] `docker.inspect` 是否要在 Plugin 侧做字段裁剪，还是保持"原样透传 + UI 决定展示"

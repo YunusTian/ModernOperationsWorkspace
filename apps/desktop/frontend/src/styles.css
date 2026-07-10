@@ -359,3 +359,249 @@ body,
   padding-top: 6px;
   border-top: 1px solid #333;
 }
+
+/* ---------------------------------------------------------------
+   Docker Dashboard (v0.3 第二阶段)
+---------------------------------------------------------------- */
+
+.dk-check {
+  color: #ccc;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.dk-status {
+  color: #888;
+  font-size: 12px;
+  margin-right: 8px;
+}
+.dk-content {
+  position: relative;
+}
+
+.dk-type {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: #ddd;
+  background: #333;
+}
+.dk-type-ssh {
+  background: #05445e;
+  color: #d7ecf5;
+}
+.dk-type-docker {
+  background: #0b3f6b;
+  color: #cfe4ff;
+}
+
+.dk-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: #ddd;
+  background: #444;
+  text-transform: lowercase;
+}
+.dk-badge-running {
+  background: #1f5c2e;
+  color: #b7f0be;
+}
+.dk-badge-exited {
+  background: #4a2020;
+  color: #f6b3b3;
+}
+.dk-badge-paused {
+  background: #4a3f00;
+  color: #ffe08a;
+}
+.dk-badge-restarting {
+  background: #05445e;
+  color: #cfe4ff;
+}
+
+.dk-image {
+  color: #cfe4ff;
+  font-family: "Menlo", "Consolas", monospace;
+  font-size: 12px;
+}
+.dk-id {
+  color: #888;
+  font-family: "Menlo", "Consolas", monospace;
+  font-size: 12px;
+}
+.dk-status-cell {
+  color: #aaa;
+  font-size: 12px;
+}
+
+/* Inspect 抽屉 */
+.dk-drawer {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 20;
+}
+.dk-drawer-inner {
+  width: min(720px, 80vw);
+  background: #1e1e1e;
+  border-left: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+}
+.dk-drawer-hd {
+  padding: 10px 14px;
+  border-bottom: 1px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #252526;
+}
+.dk-drawer-hd button.secondary {
+  background: #3c3c3c;
+  color: #ddd;
+  border: 0;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.dk-drawer-body {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+.dk-inspect {
+  background: #111;
+  color: #ddd;
+  font-family: "Menlo", "Consolas", monospace;
+  font-size: 12px;
+  padding: 10px;
+  border-radius: 4px;
+  white-space: pre;
+  margin: 0;
+}
+
+/* Logs 面板（置底） */
+.dk-logs-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 40vh;
+  background: #111;
+  border-top: 2px solid #333;
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+.dk-logs-hd {
+  padding: 6px 12px;
+  background: #252526;
+  border-bottom: 1px solid #333;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.dk-logs-hd button {
+  background: #3c3c3c;
+  color: #ddd;
+  border: 0;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.dk-logs-hd button:hover {
+  background: #4a4a4a;
+}
+.dk-logs {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 12px;
+  background: #0a0a0a;
+  color: #ddd;
+  font-family: "Menlo", "Consolas", monospace;
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 二次确认弹窗 */
+.dk-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+}
+.dk-modal-inner {
+  width: min(480px, 90vw);
+  background: #252526;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 18px 20px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.dk-modal-inner h3 {
+  margin: 0 0 8px 0;
+  font-size: 15px;
+  color: #ddd;
+}
+.dk-modal-inner code {
+  background: #333;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: "Menlo", "Consolas", monospace;
+  font-size: 12px;
+}
+.dk-modal-line {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+  color: #aaa;
+  font-size: 12px;
+}
+.dk-modal-line input {
+  background: #1e1e1e;
+  color: #ddd;
+  border: 1px solid #444;
+  padding: 5px 8px;
+  border-radius: 3px;
+  width: 100px;
+}
+.dk-modal-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.dk-modal-actions button {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+  background: #0e639c;
+  color: #fff;
+}
+.dk-modal-actions button.secondary {
+  background: #3c3c3c;
+  color: #ddd;
+}
+.dk-modal-actions button.dk-confirm-danger {
+  background: #a1382c;
+}
+.dk-modal-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

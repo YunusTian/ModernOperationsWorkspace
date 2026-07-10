@@ -47,6 +47,9 @@ type App struct {
 	shells sync.Map // sessionID -> *shellSession
 	shellN atomic.Int64
 
+	// docker.logs 流式会话
+	dockerLogs sync.Map // sessionID -> *dockerLogsSession
+
 	// Workflow 侧的共享注册表；惰性构造，见 workflow.go: workflowRecipes()。
 	wfMu  sync.Mutex
 	wfReg *recipe.Registry
@@ -119,6 +122,13 @@ func (a *App) Close() {
 	// 关闭所有 shell 会话
 	a.shells.Range(func(k, v any) bool {
 		if s, ok := v.(*shellSession); ok {
+			s.cancel()
+		}
+		return true
+	})
+	// 关闭所有 docker.logs 会话
+	a.dockerLogs.Range(func(k, v any) bool {
+		if s, ok := v.(*dockerLogsSession); ok {
 			s.cancel()
 		}
 		return true
@@ -222,16 +232,22 @@ func execSuffix() string {
 // -----------------------------------------------------------------------------
 
 // TargetVM 是暴露给前端的 Target 视图（不含凭据）。
+//
+// 为了给多种连接类型提供统一 UI，除了 Host / Port / User（SSH 专用）之外，
+// 我们额外暴露一个 DisplayHost —— 前端优先展示它：
+//   - ssh：   "user@host:port"
+//   - docker："<scheme>://<addr>"（unix / tcp / npipe）
 type TargetVM struct {
-	ID        string            `json:"id"`
-	Type      string            `json:"type"`
-	Name      string            `json:"name"`
-	Host      string            `json:"host"`
-	Port      int               `json:"port"`
-	User      string            `json:"user"`
-	Tags      map[string]string `json:"tags"`
-	CreatedAt string            `json:"created_at"`
-	UpdatedAt string            `json:"updated_at"`
+	ID          string            `json:"id"`
+	Type        string            `json:"type"`
+	Name        string            `json:"name"`
+	Host        string            `json:"host"`
+	Port        int               `json:"port"`
+	User        string            `json:"user"`
+	DisplayHost string            `json:"display_host"`
+	Tags        map[string]string `json:"tags"`
+	CreatedAt   string            `json:"created_at"`
+	UpdatedAt   string            `json:"updated_at"`
 }
 
 // ListTargets 返回全部 Target。
@@ -239,16 +255,31 @@ func (a *App) ListTargets() ([]TargetVM, error) {
 	ts := a.connMgr.List()
 	out := make([]TargetVM, 0, len(ts))
 	for _, t := range ts {
+		display := ""
+		switch t.Type {
+		case connection.TypeSSH:
+			if t.User != "" || t.Host != "" {
+				port := t.Port
+				if port == 0 {
+					port = 22
+				}
+				display = fmt.Sprintf("%s@%s:%d", t.User, t.Host, port)
+			}
+		case connection.TypeDocker:
+			// Docker target 把 host 也保存在 Target.Host 供 UI 展示（凭据里存的是完整字符串）。
+			display = t.Host
+		}
 		out = append(out, TargetVM{
-			ID:        t.ID,
-			Type:      string(t.Type),
-			Name:      t.Name,
-			Host:      t.Host,
-			Port:      t.Port,
-			User:      t.User,
-			Tags:      t.Tags,
-			CreatedAt: t.CreatedAt.UTC().Format(time.RFC3339),
-			UpdatedAt: t.UpdatedAt.UTC().Format(time.RFC3339),
+			ID:          t.ID,
+			Type:        string(t.Type),
+			Name:        t.Name,
+			Host:        t.Host,
+			Port:        t.Port,
+			User:        t.User,
+			DisplayHost: display,
+			Tags:        t.Tags,
+			CreatedAt:   t.CreatedAt.UTC().Format(time.RFC3339),
+			UpdatedAt:   t.UpdatedAt.UTC().Format(time.RFC3339),
 		})
 	}
 	return out, nil
@@ -307,6 +338,40 @@ func (a *App) UpsertSSHTarget(in UpsertSSHTargetInput) error {
 // DeleteTarget 删除一个 Target。
 func (a *App) DeleteTarget(id string) error {
 	return a.connMgr.Delete(id)
+}
+
+// UpsertDockerTargetInput 是 UpsertDockerTarget 的请求体。
+// TLS 三件套是完整 PEM 文本（前端通过文件选择器或粘贴框读取）。
+type UpsertDockerTargetInput struct {
+	ID   string            `json:"id"`
+	Name string            `json:"name"`
+	Tags map[string]string `json:"tags"`
+
+	Host       string `json:"host"`
+	APIVersion string `json:"api_version,omitempty"`
+	TLSVerify  bool   `json:"tls_verify,omitempty"`
+	TLSCA      string `json:"tls_ca,omitempty"`
+	TLSCert    string `json:"tls_cert,omitempty"`
+	TLSKey     string `json:"tls_key,omitempty"`
+}
+
+// UpsertDockerTarget 新增 / 更新一个 Docker Target。
+// Target.Host 与凭据 Host 同步，供 UI 免解密展示。
+func (a *App) UpsertDockerTarget(in UpsertDockerTargetInput) error {
+	return a.connMgr.Upsert(connection.Target{
+		ID:   in.ID,
+		Type: connection.TypeDocker,
+		Name: in.Name,
+		Host: in.Host,
+		Tags: in.Tags,
+	}, &connection.DockerCredentials{
+		Host:       in.Host,
+		APIVersion: in.APIVersion,
+		TLSVerify:  in.TLSVerify,
+		TLSCA:      in.TLSCA,
+		TLSCert:    in.TLSCert,
+		TLSKey:     in.TLSKey,
+	})
 }
 
 // PingTarget 通过 ssh.ping 端到端测试连接（不需要真实登录）。

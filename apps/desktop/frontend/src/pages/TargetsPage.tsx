@@ -1,14 +1,22 @@
 import { useEffect, useState } from "react";
-import { App, TargetVM, UpsertSSHTargetInput } from "../bindings";
+import {
+  App,
+  TargetVM,
+  UpsertDockerTargetInput,
+  UpsertSSHTargetInput,
+} from "../bindings";
 
 type Props = {
   active: string;
-  onPick: (id: string) => void;
+  onPick: (id: string, type: string) => void;
   onOpenTerminal: (id: string) => void;
   onOpenSftp: (id: string) => void;
+  onOpenDocker: (id: string) => void;
 };
 
-const emptyForm: UpsertSSHTargetInput = {
+type FormMode = "closed" | "ssh" | "docker";
+
+const emptySSH: UpsertSSHTargetInput = {
   id: "",
   name: "",
   host: "",
@@ -21,12 +29,25 @@ const emptyForm: UpsertSSHTargetInput = {
   known_hosts_mode: "accept-new",
 };
 
+const emptyDocker: UpsertDockerTargetInput = {
+  id: "",
+  name: "",
+  host: "unix:///var/run/docker.sock",
+  api_version: "",
+  tls_verify: false,
+  tls_ca: "",
+  tls_cert: "",
+  tls_key: "",
+};
+
 export default function TargetsPage(props: Props) {
   const [targets, setTargets] = useState<TargetVM[]>([]);
   const [err, setErr] = useState<string>("");
   const [busy, setBusy] = useState<string>("");
-  const [form, setForm] = useState<UpsertSSHTargetInput>(emptyForm);
-  const [showForm, setShowForm] = useState(false);
+  const [mode, setMode] = useState<FormMode>("closed");
+  const [sshForm, setSshForm] = useState<UpsertSSHTargetInput>(emptySSH);
+  const [dockerForm, setDockerForm] =
+    useState<UpsertDockerTargetInput>(emptyDocker);
 
   const refresh = () => {
     setErr("");
@@ -36,15 +57,30 @@ export default function TargetsPage(props: Props) {
   };
   useEffect(refresh, []);
 
-  const onSubmit = async () => {
-    if (!form.id || !form.host || !form.user) {
+  const onSubmitSSH = async () => {
+    if (!sshForm.id || !sshForm.host || !sshForm.user) {
       setErr("id / host / user 必填");
       return;
     }
     try {
-      await App.UpsertSSHTarget(form);
-      setShowForm(false);
-      setForm(emptyForm);
+      await App.UpsertSSHTarget(sshForm);
+      setMode("closed");
+      setSshForm(emptySSH);
+      refresh();
+    } catch (e) {
+      setErr(String(e));
+    }
+  };
+
+  const onSubmitDocker = async () => {
+    if (!dockerForm.id || !dockerForm.host) {
+      setErr("id / host 必填");
+      return;
+    }
+    try {
+      await App.UpsertDockerTarget(dockerForm);
+      setMode("closed");
+      setDockerForm(emptyDocker);
       refresh();
     } catch (e) {
       setErr(String(e));
@@ -77,8 +113,16 @@ export default function TargetsPage(props: Props) {
   return (
     <>
       <div className="toolbar">
-        <button onClick={() => setShowForm((s) => !s)}>
-          {showForm ? "Cancel" : "+ Add SSH Target"}
+        <button
+          onClick={() => setMode(mode === "ssh" ? "closed" : "ssh")}
+          className={mode === "ssh" ? "" : ""}
+        >
+          {mode === "ssh" ? "Cancel" : "+ Add SSH Target"}
+        </button>
+        <button
+          onClick={() => setMode(mode === "docker" ? "closed" : "docker")}
+        >
+          {mode === "docker" ? "Cancel" : "+ Add Docker Target"}
         </button>
         <button className="secondary" onClick={refresh}>
           Refresh
@@ -87,54 +131,54 @@ export default function TargetsPage(props: Props) {
         {err && <span className="error">{err}</span>}
       </div>
 
-      {showForm && (
+      {mode === "ssh" && (
         <div className="form">
           <label>
             ID
             <input
-              value={form.id}
-              onChange={(e) => setForm({ ...form, id: e.target.value })}
+              value={sshForm.id}
+              onChange={(e) => setSshForm({ ...sshForm, id: e.target.value })}
               placeholder="e.g. srv-web-01"
             />
           </label>
           <label>
             Name
             <input
-              value={form.name ?? ""}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              value={sshForm.name ?? ""}
+              onChange={(e) => setSshForm({ ...sshForm, name: e.target.value })}
             />
           </label>
           <label>
             Host
             <input
-              value={form.host}
-              onChange={(e) => setForm({ ...form, host: e.target.value })}
+              value={sshForm.host}
+              onChange={(e) => setSshForm({ ...sshForm, host: e.target.value })}
             />
           </label>
           <label>
             Port
             <input
               type="number"
-              value={form.port ?? 22}
+              value={sshForm.port ?? 22}
               onChange={(e) =>
-                setForm({ ...form, port: Number(e.target.value) })
+                setSshForm({ ...sshForm, port: Number(e.target.value) })
               }
             />
           </label>
           <label>
             User
             <input
-              value={form.user}
-              onChange={(e) => setForm({ ...form, user: e.target.value })}
+              value={sshForm.user}
+              onChange={(e) => setSshForm({ ...sshForm, user: e.target.value })}
             />
           </label>
           <label>
             Auth Method
             <select
-              value={form.method}
+              value={sshForm.method}
               onChange={(e) =>
-                setForm({
-                  ...form,
+                setSshForm({
+                  ...sshForm,
                   method: e.target.value as UpsertSSHTargetInput["method"],
                 })
               }
@@ -144,27 +188,27 @@ export default function TargetsPage(props: Props) {
               <option value="agent">agent</option>
             </select>
           </label>
-          {form.method === "password" && (
+          {sshForm.method === "password" && (
             <label>
               Password
               <input
                 type="password"
-                value={form.password ?? ""}
+                value={sshForm.password ?? ""}
                 onChange={(e) =>
-                  setForm({ ...form, password: e.target.value })
+                  setSshForm({ ...sshForm, password: e.target.value })
                 }
               />
             </label>
           )}
-          {form.method === "privatekey" && (
+          {sshForm.method === "privatekey" && (
             <>
               <label style={{ gridColumn: "1/-1" }}>
                 Private Key (PEM)
                 <textarea
                   rows={4}
-                  value={form.private_key ?? ""}
+                  value={sshForm.private_key ?? ""}
                   onChange={(e) =>
-                    setForm({ ...form, private_key: e.target.value })
+                    setSshForm({ ...sshForm, private_key: e.target.value })
                   }
                 />
               </label>
@@ -172,9 +216,9 @@ export default function TargetsPage(props: Props) {
                 Passphrase (optional)
                 <input
                   type="password"
-                  value={form.passphrase ?? ""}
+                  value={sshForm.passphrase ?? ""}
                   onChange={(e) =>
-                    setForm({ ...form, passphrase: e.target.value })
+                    setSshForm({ ...sshForm, passphrase: e.target.value })
                   }
                 />
               </label>
@@ -183,10 +227,10 @@ export default function TargetsPage(props: Props) {
           <label>
             known_hosts mode
             <select
-              value={form.known_hosts_mode ?? "accept-new"}
+              value={sshForm.known_hosts_mode ?? "accept-new"}
               onChange={(e) =>
-                setForm({
-                  ...form,
+                setSshForm({
+                  ...sshForm,
                   known_hosts_mode: e.target
                     .value as UpsertSSHTargetInput["known_hosts_mode"],
                 })
@@ -198,12 +242,117 @@ export default function TargetsPage(props: Props) {
             </select>
           </label>
           <div className="form-actions">
-            <button onClick={onSubmit}>Save</button>
+            <button onClick={onSubmitSSH}>Save</button>
             <button
               className="secondary"
               onClick={() => {
-                setShowForm(false);
-                setForm(emptyForm);
+                setMode("closed");
+                setSshForm(emptySSH);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode === "docker" && (
+        <div className="form">
+          <label>
+            ID
+            <input
+              value={dockerForm.id}
+              onChange={(e) =>
+                setDockerForm({ ...dockerForm, id: e.target.value })
+              }
+              placeholder="e.g. dk-prod-01"
+            />
+          </label>
+          <label>
+            Name
+            <input
+              value={dockerForm.name ?? ""}
+              onChange={(e) =>
+                setDockerForm({ ...dockerForm, name: e.target.value })
+              }
+            />
+          </label>
+          <label style={{ gridColumn: "1/-1" }}>
+            Docker Host
+            <input
+              value={dockerForm.host}
+              onChange={(e) =>
+                setDockerForm({ ...dockerForm, host: e.target.value })
+              }
+              placeholder="unix:///var/run/docker.sock  |  tcp://10.0.0.5:2376"
+            />
+          </label>
+          <label>
+            API Version (optional)
+            <input
+              value={dockerForm.api_version ?? ""}
+              onChange={(e) =>
+                setDockerForm({ ...dockerForm, api_version: e.target.value })
+              }
+              placeholder="e.g. 1.44"
+            />
+          </label>
+          <label>
+            TLS Verify
+            <select
+              value={dockerForm.tls_verify ? "true" : "false"}
+              onChange={(e) =>
+                setDockerForm({
+                  ...dockerForm,
+                  tls_verify: e.target.value === "true",
+                })
+              }
+            >
+              <option value="false">off</option>
+              <option value="true">on</option>
+            </select>
+          </label>
+          {(dockerForm.tls_verify || dockerForm.tls_ca) && (
+            <>
+              <label style={{ gridColumn: "1/-1" }}>
+                CA (PEM)
+                <textarea
+                  rows={3}
+                  value={dockerForm.tls_ca ?? ""}
+                  onChange={(e) =>
+                    setDockerForm({ ...dockerForm, tls_ca: e.target.value })
+                  }
+                />
+              </label>
+              <label style={{ gridColumn: "1/-1" }}>
+                Client Cert (PEM)
+                <textarea
+                  rows={3}
+                  value={dockerForm.tls_cert ?? ""}
+                  onChange={(e) =>
+                    setDockerForm({ ...dockerForm, tls_cert: e.target.value })
+                  }
+                />
+              </label>
+              <label style={{ gridColumn: "1/-1" }}>
+                Client Key (PEM)
+                <textarea
+                  rows={3}
+                  value={dockerForm.tls_key ?? ""}
+                  onChange={(e) =>
+                    setDockerForm({ ...dockerForm, tls_key: e.target.value })
+                  }
+                />
+              </label>
+            </>
+          )}
+          <div className="form-actions">
+            <button onClick={onSubmitDocker}>Save</button>
+            <button
+              className="secondary"
+              onClick={() => {
+                setMode("closed");
+                setDockerForm(emptyDocker);
               }}
             >
               Cancel
@@ -214,15 +363,16 @@ export default function TargetsPage(props: Props) {
 
       <div className="content">
         {targets.length === 0 ? (
-          <p style={{ color: "#888" }}>暂无 Target。点击 "+ Add SSH Target" 新建。</p>
+          <p style={{ color: "#888" }}>
+            暂无 Target。点击 "+ Add SSH Target" 或 "+ Add Docker Target" 新建。
+          </p>
         ) : (
           <table className="table">
             <thead>
               <tr>
                 <th>ID</th>
                 <th>Type</th>
-                <th>Host</th>
-                <th>User</th>
+                <th>Endpoint</th>
                 <th>Tags</th>
                 <th></th>
               </tr>
@@ -231,19 +381,17 @@ export default function TargetsPage(props: Props) {
               {targets.map((t) => (
                 <tr
                   key={t.id}
-                  onClick={() => props.onPick(t.id)}
+                  onClick={() => props.onPick(t.id, t.type)}
                   style={{
                     background: t.id === props.active ? "#094771" : undefined,
                     cursor: "pointer",
                   }}
                 >
                   <td>{t.id}</td>
-                  <td>{t.type}</td>
                   <td>
-                    {t.host}
-                    {t.port && t.port !== 22 ? `:${t.port}` : ""}
+                    <span className={`dk-type dk-type-${t.type}`}>{t.type}</span>
                   </td>
-                  <td>{t.user}</td>
+                  <td>{t.display_host || `${t.host}${t.port ? ":" + t.port : ""}`}</td>
                   <td>
                     {Object.entries(t.tags ?? {}).map(([k, v]) => (
                       <span className="pill" key={k}>
@@ -252,16 +400,27 @@ export default function TargetsPage(props: Props) {
                     ))}
                   </td>
                   <td className="actions" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={() => onPing(t.id)}
-                      disabled={busy === t.id}
-                    >
-                      {busy === t.id ? "..." : "Ping"}
-                    </button>
-                    <button onClick={() => props.onOpenTerminal(t.id)}>
-                      Terminal
-                    </button>
-                    <button onClick={() => props.onOpenSftp(t.id)}>SFTP</button>
+                    {t.type === "ssh" && (
+                      <>
+                        <button
+                          onClick={() => onPing(t.id)}
+                          disabled={busy === t.id}
+                        >
+                          {busy === t.id ? "..." : "Ping"}
+                        </button>
+                        <button onClick={() => props.onOpenTerminal(t.id)}>
+                          Terminal
+                        </button>
+                        <button onClick={() => props.onOpenSftp(t.id)}>
+                          SFTP
+                        </button>
+                      </>
+                    )}
+                    {t.type === "docker" && (
+                      <button onClick={() => props.onOpenDocker(t.id)}>
+                        Dashboard
+                      </button>
+                    )}
                     <button onClick={() => onDelete(t.id)}>Delete</button>
                   </td>
                 </tr>
