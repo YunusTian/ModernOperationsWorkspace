@@ -117,7 +117,52 @@ export type WorkflowStepEvent = {
 export type WorkflowDoneEvent = {
   ok: boolean;
   duration_ms: number;
+  run_id?: string;
   error?: string;
+};
+
+// -----------------------------------------------------------------------------
+// Workflow 执行历史
+// -----------------------------------------------------------------------------
+
+export type WorkflowRunRow = {
+  run_id: string;
+  workflow_id: string;
+  target_id?: string;
+  caller?: string;
+  ok: boolean;
+  error?: string;
+  started_at: string;
+  finished_at: string;
+  duration_ms: number;
+  step_count: number;
+  skipped_count?: number;
+  retried_count?: number;
+  failed_step?: string;
+};
+
+export type WorkflowRunStepView = {
+  step_id: string;
+  command?: string;
+  recipe?: string;
+  ok: boolean;
+  skipped?: boolean;
+  audit_id?: string;
+  attempts?: number;
+  duration_ms: number;
+  error_code?: string;
+  error_msg?: string;
+};
+
+export type WorkflowRunDetail = {
+  row: WorkflowRunRow;
+  inputs?: Record<string, unknown>;
+  steps?: WorkflowRunStepView[];
+};
+
+export type WorkflowHistoryListInput = {
+  limit?: number;
+  workflow_id?: string;
 };
 
 // -----------------------------------------------------------------------------
@@ -237,6 +282,10 @@ export const App = {
   WorkflowValidate: (yamlText: string) =>
     call<WorkflowValidateResult>("WorkflowValidate", yamlText),
   WorkflowRun: (in_: WorkflowRunInput) => call<void>("WorkflowRun", in_),
+  ListWorkflowRuns: (in_: WorkflowHistoryListInput) =>
+    call<WorkflowRunRow[]>("ListWorkflowRuns", in_),
+  GetWorkflowRun: (runID: string) =>
+    call<WorkflowRunDetail>("GetWorkflowRun", runID),
 
   DockerList: (targetID: string, in_: DockerListInput) =>
     call<DockerListResult>("DockerList", targetID, in_),

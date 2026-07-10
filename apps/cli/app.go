@@ -14,6 +14,7 @@ import (
 	"github.com/mow/mow/core/logger"
 	"github.com/mow/mow/core/plugin"
 	"github.com/mow/mow/core/recipe"
+	"github.com/mow/mow/core/workflow/history"
 )
 
 // -----------------------------------------------------------------------------
@@ -30,6 +31,7 @@ type App struct {
 	Engine  *command.Engine
 	Recipes *recipe.Registry
 	Runner  *recipe.Runner
+	History *history.JSONLStore
 
 	// 已加载的插件句柄，退出时统一 Close。
 	loaded []func()
@@ -97,7 +99,20 @@ func loadApp(cfgPath string) (*App, error) {
 		Engine:  engine,
 		Recipes: recipe.NewRegistry(),
 		Runner:  recipe.NewRunner(engine),
+		History: mustHistoryStore(log, cfg.App.DataDir),
 	}, nil
+}
+
+// mustHistoryStore 构造 JSONL 存储。失败时降级为 nil（Runner 会自然禁用历史）。
+// 这样即使 data_dir 权限异常，也不至于让 CLI 无法启动。
+func mustHistoryStore(log *logger.Logger, dir string) *history.JSONLStore {
+	s, err := history.NewJSONLStore(dir)
+	if err != nil {
+		log.WithComponent("workflow.history").
+			Warn("disable workflow history", "err", err.Error())
+		return nil
+	}
+	return s
 }
 
 // Close 释放已加载插件与后台 goroutine。

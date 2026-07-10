@@ -30,6 +30,7 @@ func newWorkflowCmd(h *appHolder) *cobra.Command {
 	c.AddCommand(
 		newWorkflowValidateCmd(),
 		newWorkflowRunCmd(h),
+		newWorkflowHistoryCmd(h),
 	)
 	return c
 }
@@ -118,6 +119,7 @@ func runWorkflow(ctx context.Context, h *appHolder, o *workflowRunOpts, path str
 	runner := workflow.NewRunner(workflow.RunnerOptions{
 		Command: &engineCommandExecutor{engine: app.Engine},
 		Recipe:  &registryRecipeExecutor{runner: app.Runner, registry: app.Recipes},
+		History: historySinkOrNil(app),
 	})
 
 	var onStep workflow.OnStepFunc
@@ -127,10 +129,11 @@ func runWorkflow(ctx context.Context, h *appHolder, o *workflowRunOpts, path str
 	}
 
 	res, runErr := runner.Run(ctx, w, workflow.RunOptions{
-		Inputs:   inputs,
-		TargetID: o.Target,
-		Caller:   sdk.Caller{Type: sdk.CallerCLI, User: currentUser()},
-		OnStep:   onStep,
+		Inputs:      inputs,
+		TargetID:    o.Target,
+		Caller:      sdk.Caller{Type: sdk.CallerCLI, User: currentUser()},
+		CallerLabel: "cli:" + currentUser(),
+		OnStep:      onStep,
 	})
 
 	if o.AsJSON {
@@ -139,6 +142,14 @@ func runWorkflow(ctx context.Context, h *appHolder, o *workflowRunOpts, path str
 		printWorkflowSummary(writer, res, useColor(o))
 	}
 	return runErr
+}
+
+// historySinkOrNil 让类型系统在 History 未启用时避免把 nil interface 传给 Runner。
+func historySinkOrNil(app *App) workflow.HistorySink {
+	if app.History == nil {
+		return nil
+	}
+	return app.History
 }
 
 // -----------------------------------------------------------------------------

@@ -15,6 +15,8 @@ package workflow
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -111,8 +113,36 @@ type OnStepFunc func(ev StepEvent)
 
 // Runner 是 Workflow 执行引擎。
 type Runner struct {
-	cmd    CommandExecutor
-	recipe RecipeExecutor
+	cmd     CommandExecutor
+	recipe  RecipeExecutor
+	history HistorySink
+	nowFn   func() time.Time // 测试注入
+}
+
+// HistorySink 是 Runner 完成一次 Run 后可选调用的落盘接口。
+//
+// 用小接口而非直接 import history 包，避免 core/workflow 反过来依赖 history。
+// history.Store 实现自然满足这个接口。
+type HistorySink interface {
+	SaveRun(ctx context.Context, snap *RunSnapshot) error
+}
+
+// RunSnapshot 是 Runner 传给 HistorySink 的一份结构化快照。
+//
+// 与 workflow.Result 语义一致，但把 Runner 侧才知道的字段（TargetID / Caller /
+// Inputs / StartedAt / FinishedAt / Error）一并带上，避免 Sink 再翻译一遍。
+type RunSnapshot struct {
+	RunID      string
+	WorkflowID string
+	TargetID   string
+	Caller     string
+	Inputs     map[string]any
+	StartedAt  time.Time
+	FinishedAt time.Time
+	Duration   time.Duration
+	OK         bool
+	Error      string
+	Steps      []StepResult
 }
 
 // RunnerOptions 构造 Runner 的可选参数。
@@ -120,11 +150,21 @@ type RunnerOptions struct {
 	// Command / Recipe 至少一个非 nil；具体校验在 Run 时按 Step 类型触发。
 	Command CommandExecutor
 	Recipe  RecipeExecutor
+	// History 可选：非 nil 时 Runner 会在 Run 结束后调用一次 SaveRun。
+	// Sink 内部错误不会影响 Run 的返回值——写盘失败只记日志级别的容忍。
+	History HistorySink
+	// Now 用于测试注入固定时间；nil 时使用 time.Now。
+	Now func() time.Time
 }
 
 // NewRunner 构造一个 Runner。
 func NewRunner(opts RunnerOptions) *Runner {
-	return &Runner{cmd: opts.Command, recipe: opts.Recipe}
+	return &Runner{
+		cmd:     opts.Command,
+		recipe:  opts.Recipe,
+		history: opts.History,
+		nowFn:   opts.Now,
+	}
 }
 
 // RunOptions 是 Workflow 单次执行的可选参数。
@@ -137,6 +177,10 @@ type RunOptions struct {
 	Caller any
 	// OnStep：观察回调；nil 时不触发。
 	OnStep OnStepFunc
+
+	// CallerLabel 是一个可选的字符串描述（例："cli:alice"），仅用于历史归档；
+	// 不参与执行语义。上层如需可从 Caller 派生后传入。
+	CallerLabel string
 }
 
 // Run 顺序执行 Workflow。
@@ -146,6 +190,7 @@ type RunOptions struct {
 //   - 每步：Interpolate 参数 → 分派 Command / Recipe → 记录 StepResult
 //   - 任一步失败 → 中断，返回 Result（OK=false）+ error
 //   - 成功步的 out 字段挂到 scope.Steps[step.ID].Out，供后续 ${steps.<id>.out.*} 使用
+//   - 若 RunnerOptions.History 非 nil，返回前会调用一次 SaveRun 落盘（失败不影响返回）
 func (r *Runner) Run(ctx context.Context, w *Workflow, opts RunOptions) (*Result, error) {
 	if err := w.Validate(); err != nil {
 		return nil, err
@@ -155,8 +200,27 @@ func (r *Runner) Run(ctx context.Context, w *Workflow, opts RunOptions) (*Result
 		Steps:  make(map[string]StepScope, len(w.Steps)),
 	}
 
-	start := time.Now()
-	res := &Result{WorkflowID: w.ID, OK: true}
+	now := r.now()
+	runID := newRunID()
+	start := now
+	res := &Result{
+		RunID:      runID,
+		WorkflowID: w.ID,
+		OK:         true,
+		StartedAt:  start,
+	}
+
+	var runErr error
+	defer func() {
+		// FinishedAt / Duration 兜底填充；异常路径不至于漏字段。
+		if res.FinishedAt.IsZero() {
+			res.FinishedAt = r.now()
+		}
+		if res.Duration == 0 {
+			res.Duration = res.FinishedAt.Sub(res.StartedAt)
+		}
+		r.saveHistory(ctx, res, opts, runErr)
+	}()
 
 	for i, step := range w.Steps {
 		emit(opts.OnStep, StepEvent{Phase: PhaseStart, Index: i, Step: step})
@@ -166,13 +230,15 @@ func (r *Runner) Run(ctx context.Context, w *Workflow, opts RunOptions) (*Result
 
 		if !sr.OK {
 			res.OK = false
-			res.Duration = time.Since(start)
+			res.FinishedAt = r.now()
+			res.Duration = res.FinishedAt.Sub(start)
 			cause := errors.New(sr.ErrorMsg)
 			emit(opts.OnStep, StepEvent{
 				Phase: PhaseError, Index: i, Step: step,
 				Result: &res.Steps[len(res.Steps)-1], Err: cause,
 			})
-			return res, fmt.Errorf("step %q failed: %s", sr.StepID, sr.ErrorMsg)
+			runErr = fmt.Errorf("step %q failed: %s", sr.StepID, sr.ErrorMsg)
+			return res, runErr
 		}
 
 		// 跳过：不写 scope.Steps.<id>.out（避免后续 step 误引用不存在的字段），
@@ -194,8 +260,59 @@ func (r *Runner) Run(ctx context.Context, w *Workflow, opts RunOptions) (*Result
 		})
 	}
 
-	res.Duration = time.Since(start)
+	res.FinishedAt = r.now()
+	res.Duration = res.FinishedAt.Sub(start)
 	return res, nil
+}
+
+// -----------------------------------------------------------------------------
+// history / 时间 / RunID
+// -----------------------------------------------------------------------------
+
+// now 返回当前时间，允许测试覆盖。
+func (r *Runner) now() time.Time {
+	if r.nowFn != nil {
+		return r.nowFn()
+	}
+	return time.Now()
+}
+
+// newRunID 生成一个 URL-safe 的短随机 ID。
+// 16 字节 = 32 hex，够小又足以避免同秒碰撞。
+func newRunID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand 失败极少见；退化到时间戳保证仍然生成非空 ID。
+		return fmt.Sprintf("run-%d", time.Now().UnixNano())
+	}
+	return "run-" + hex.EncodeToString(b[:])
+}
+
+// saveHistory 是 Run 返回前的 hook；错误只写入 stderr 级别，不冒泡。
+func (r *Runner) saveHistory(ctx context.Context, res *Result, opts RunOptions, runErr error) {
+	if r.history == nil || res == nil {
+		return
+	}
+	snap := &RunSnapshot{
+		RunID:      res.RunID,
+		WorkflowID: res.WorkflowID,
+		TargetID:   opts.TargetID,
+		Caller:     opts.CallerLabel,
+		Inputs:     cloneMap(opts.Inputs),
+		StartedAt:  res.StartedAt,
+		FinishedAt: res.FinishedAt,
+		Duration:   res.Duration,
+		OK:         res.OK,
+		Steps:      append([]StepResult(nil), res.Steps...),
+	}
+	if runErr != nil {
+		snap.Error = runErr.Error()
+	}
+	// 用一个独立 ctx，避免 ctx 已取消导致落盘也失败。
+	saveCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_ = ctx // 保留参数以便未来做 trace 关联
+	_ = r.history.SaveRun(saveCtx, snap)
 }
 
 // -----------------------------------------------------------------------------

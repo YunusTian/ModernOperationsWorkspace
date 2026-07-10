@@ -193,6 +193,63 @@ steps:
   - `Err` — 该次的原始错误
 - CLI：`↻ retry 1/3 after 500ms: connection refused`；Desktop：状态转 `retrying`，展示 `attempt 1/3, retry in 500ms — …`。
 
+#### 7.4.3 执行历史持久化（v0.3 第三批）
+
+Runner 完成一次 Run 后（无论成功 / 失败），会把结果快照写入一份**执行历史**。默认后端是 JSON Lines 文件 `<data_dir>/workflow-runs.jsonl`，与审计日志共享目录；后续可换成 SQLite 而无需修改 Runner / UI。
+
+**核心接口**（[core/workflow/history](../core/workflow/history)）：
+
+```go
+type Store interface {
+    Save(ctx, *Record) error
+    List(ctx, ListOptions) ([]Record, error)
+    Get(ctx, runID string) (*Record, error)
+}
+```
+
+- `Record` 与 `workflow.Result` 对齐，另加 `RunID / StartedAt / FinishedAt / Duration / TargetID / Caller / Inputs / Error`。
+- `RunID` 由 Runner 生成（`run-` + 16 字节 hex），供 UI 与 CLI 关联。
+- `List` 按 `FinishedAt` 倒序（新在前），默认 100 条，硬上限 500；支持 `WorkflowID` 过滤。
+- `Get` 找不到返回 `(nil, nil)`。
+
+**写入语义**：
+
+- `RunnerOptions.History` 非 `nil` 时自动写盘；未设置则完全禁用（等价于 `history.Noop()`）。
+- 写盘错误**不会**冒泡到 `Runner.Run` 的返回值——历史落盘失败最多丢一行观测数据，不应破坏业务。
+- 使用独立的 3s ctx 兜底，避免 caller ctx 已取消导致写盘失败。
+
+**为什么先 JSONL 再 SQLite**：
+
+- 零 CGO 依赖：Windows / macOS / Linux 交叉编译不受阻。
+- 单文件 append-only：崩溃最多丢一行；跑几百次 Workflow 完全够用。
+- 单行坏了自动跳过，其它行照读——`bufio.Scanner` 直接跳到下一行。
+- 到万级行才需要切换 SQLite；届时替换 `Store` 实现即可，`Record` / `HistorySink` 接口不变。
+
+**CLI**：
+
+```bash
+mow workflow history list              # 最近 30 条
+mow workflow history list --workflow deploy.static-site --limit 100
+mow workflow history list --json       # 机读格式
+mow workflow history show run-<hex>
+mow workflow history show run-<hex> --json
+```
+
+**Desktop**：
+
+- `WorkflowPage` 底部新增可折叠的 History 面板：
+  - 列出最近 30 条：状态图标 / workflow / target / duration / finished / 步骤计数（含 ⤼ ↻ 标注）
+  - 每次 Run 结束后自动刷新（不用手动）
+  - 点击某行 → 抽屉展示 inputs / steps / audit id / error code
+
+**前端 API**（Wails）：
+
+| 方法 | 说明 |
+|---|---|
+| `App.ListWorkflowRuns({limit, workflow_id})` | 列表页 |
+| `App.GetWorkflowRun(run_id)` | 详情抽屉 |
+
+
 ### 7.5 尚未实现（v0.3+）
 
 按 **分批推进** 顺序落地，避免一次交付太大：
@@ -201,7 +258,7 @@ steps:
 | --- | --- | --- |
 | `when: <expr>` | 🔨 **v0.3 第一批（已合入）** | 条件分支；表达式复用 expr-lang，无 `${}` 包裹 |
 | `retry: { max, backoff, max_backoff, exponential }` | 🔨 **v0.3 第二批（已合入）** | 单 step 重试；fixed / exponential，无 jitter |
-| 状态持久化（SQLite） | ⏳ v0.3 第三批 | 与审计日志共享存储；先只做执行历史查询 |
+| 执行历史持久化（JSONL） | 🔨 **v0.3 第三批（已合入）** | `<data_dir>/workflow-runs.jsonl`；SQLite 后端后续替换 |
 | `on_failure` / `rollback` | ⏳ v0.3 第四批 | 手动声明式回滚；`rollback` 是 `on_failure` 的语法糖 |
 | `parallel: true` | ⏳ v0.3 第五批 | **最后做**，涉及取消传播、资源竞争、事件顺序、审计一致性、测试复杂度显著上升 |
 | `notify: { channel, target }` | v0.4+ | 邮件 / IM / Webhook 通知 |

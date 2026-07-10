@@ -7,6 +7,7 @@ import {
   WorkflowValidateResult,
   eventsOn,
 } from "../bindings";
+import WorkflowHistoryPanel from "./WorkflowHistoryPanel";
 
 type Props = {
   activeTarget: string;
@@ -56,6 +57,7 @@ export default function WorkflowPage({ activeTarget }: Props) {
   const [running, setRunning] = useState<boolean>(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [summary, setSummary] = useState<WorkflowDoneEvent | null>(null);
+  const [historyTick, setHistoryTick] = useState<number>(0);
 
   const sessionRef = useRef<string>("");
   const logsRef = useRef<HTMLDivElement | null>(null);
@@ -210,6 +212,7 @@ export default function WorkflowPage({ activeTarget }: Props) {
       const ev = data[0] as WorkflowDoneEvent;
       setSummary(ev);
       setRunning(false);
+      setHistoryTick((v) => v + 1); // 通知历史面板刷新
     });
 
     return () => {
@@ -367,11 +370,16 @@ export default function WorkflowPage({ activeTarget }: Props) {
               className={`wf-summary wf-log-${summary.ok ? "ok" : "fail"}`}
             >
               {summary.ok ? "✓" : "✗"} finished in {summary.duration_ms}ms
+              {summary.run_id && (
+                <span className="wf-ref"> · {summary.run_id.slice(0, 16)}</span>
+              )}
               {summary.error && <> — {summary.error}</>}
             </div>
           )}
         </div>
       )}
+
+      <WorkflowHistoryPanel refreshTick={historyTick} />
     </div>
   );
 }

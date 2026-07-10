@@ -24,6 +24,7 @@ import (
 	"github.com/mow/mow/core/logger"
 	"github.com/mow/mow/core/plugin"
 	"github.com/mow/mow/core/recipe"
+	"github.com/mow/mow/core/workflow/history"
 	"github.com/mow/mow/sdk"
 	"github.com/mow/mow/sdk/pluginclient"
 )
@@ -36,6 +37,7 @@ type App struct {
 	connMgr *connection.Manager
 	plugMgr *plugin.Manager
 	engine  *command.Engine
+	history *history.JSONLStore
 
 	ctxMu sync.RWMutex
 	ctx   context.Context
@@ -97,8 +99,20 @@ func NewApp() (*App, error) {
 		connMgr: connMgr,
 		plugMgr: plugMgr,
 		engine:  engine,
+		history: openHistory(log, cfg.App.DataDir),
 		enabled: map[string]bool{},
 	}, nil
+}
+
+// openHistory 打开 JSONL 存储。失败时降级为 nil：Runner 会自然停用历史。
+func openHistory(log *logger.Logger, dir string) *history.JSONLStore {
+	s, err := history.NewJSONLStore(dir)
+	if err != nil {
+		log.WithComponent("workflow.history").
+			Warn("disable workflow history", "err", err.Error())
+		return nil
+	}
+	return s
 }
 
 // SetContext 由 Wails OnStartup 调用；保存供 EventsEmit 使用。

@@ -24,6 +24,7 @@ import (
 	"github.com/mow/mow/core/command"
 	"github.com/mow/mow/core/recipe"
 	"github.com/mow/mow/core/workflow"
+	"github.com/mow/mow/core/workflow/history"
 	"github.com/mow/mow/sdk"
 )
 
@@ -128,6 +129,7 @@ func (a *App) WorkflowRun(in WorkflowRunInput) error {
 			runner:   recipe.NewRunner(a.engine),
 			registry: a.workflowRecipes(),
 		},
+		History: a.workflowHistorySink(),
 	})
 
 	sess := in.SessionID
@@ -139,9 +141,10 @@ func (a *App) WorkflowRun(in WorkflowRunInput) error {
 
 		start := time.Now()
 		res, runErr := runner.Run(ctx, wf, workflow.RunOptions{
-			Inputs:   in.Inputs,
-			TargetID: in.Target,
-			Caller:   sdk.Caller{Type: sdk.CallerDesktop, User: currentUser()},
+			Inputs:      in.Inputs,
+			TargetID:    in.Target,
+			Caller:      sdk.Caller{Type: sdk.CallerDesktop, User: currentUser()},
+			CallerLabel: "desktop:" + currentUser(),
 			OnStep: func(ev workflow.StepEvent) {
 				emitStepEvent(emitCtx, sess, ev)
 			},
@@ -149,6 +152,9 @@ func (a *App) WorkflowRun(in WorkflowRunInput) error {
 		payload := map[string]any{
 			"ok":          res != nil && res.OK,
 			"duration_ms": time.Since(start).Milliseconds(),
+		}
+		if res != nil {
+			payload["run_id"] = res.RunID
 		}
 		if runErr != nil {
 			payload["error"] = runErr.Error()
@@ -299,4 +305,152 @@ func (a *desktopRecipeExecutor) RunRecipe(
 	}
 	data, _ := json.Marshal(res)
 	return &workflow.StepOutput{Data: data}, nil
+}
+
+// -----------------------------------------------------------------------------
+// Workflow 执行历史
+// -----------------------------------------------------------------------------
+//
+// 前端契约：
+//   ListWorkflowRuns({limit, workflow_id}) → WorkflowRunRow[]
+//   GetWorkflowRun(runID)                 → WorkflowRunDetail
+//
+// 与 CLI 共享同一份 JSONL 存储：apps/desktop 用 openHistory 打开、apps/cli 用 mustHistoryStore。
+
+// WorkflowRunRow 是历史列表页每一行；不含 Steps / Inputs 明细。
+type WorkflowRunRow struct {
+	RunID       string `json:"run_id"`
+	WorkflowID  string `json:"workflow_id"`
+	TargetID    string `json:"target_id,omitempty"`
+	Caller      string `json:"caller,omitempty"`
+	OK          bool   `json:"ok"`
+	Error       string `json:"error,omitempty"`
+	StartedAt   string `json:"started_at"`  // RFC3339
+	FinishedAt  string `json:"finished_at"` // RFC3339
+	DurationMs  int64  `json:"duration_ms"`
+	StepCount   int    `json:"step_count"`
+	SkippedCnt  int    `json:"skipped_count,omitempty"`
+	RetriedCnt  int    `json:"retried_count,omitempty"`
+	FailedStep  string `json:"failed_step,omitempty"`
+}
+
+// WorkflowRunDetail 是详情页需要的完整快照。
+type WorkflowRunDetail struct {
+	Row    WorkflowRunRow         `json:"row"`
+	Inputs map[string]any         `json:"inputs,omitempty"`
+	Steps  []WorkflowRunStepView  `json:"steps,omitempty"`
+}
+
+// WorkflowRunStepView 与 core/workflow.StepResult 对齐；避免前端解引用 StepResult 里的
+// json.RawMessage（Wails 序列化二次编码问题）。
+type WorkflowRunStepView struct {
+	StepID     string `json:"step_id"`
+	Command    string `json:"command,omitempty"`
+	Recipe     string `json:"recipe,omitempty"`
+	OK         bool   `json:"ok"`
+	Skipped    bool   `json:"skipped,omitempty"`
+	AuditID    string `json:"audit_id,omitempty"`
+	Attempts   int    `json:"attempts,omitempty"`
+	DurationMs int64  `json:"duration_ms"`
+	ErrorCode  string `json:"error_code,omitempty"`
+	ErrorMsg   string `json:"error_msg,omitempty"`
+}
+
+// WorkflowHistoryListInput 是 ListWorkflowRuns 的入参。
+type WorkflowHistoryListInput struct {
+	Limit      int    `json:"limit"`
+	WorkflowID string `json:"workflow_id,omitempty"`
+}
+
+// workflowHistorySink 是给 Runner 的 HistorySink；未启用时返回 nil。
+func (a *App) workflowHistorySink() workflow.HistorySink {
+	if a.history == nil {
+		return nil
+	}
+	return a.history
+}
+
+// ListWorkflowRuns 返回最近的 Workflow 执行记录（新在前）。
+func (a *App) ListWorkflowRuns(in WorkflowHistoryListInput) ([]WorkflowRunRow, error) {
+	if a.history == nil {
+		return nil, fmt.Errorf("workflow history is disabled")
+	}
+	limit := in.Limit
+	if limit <= 0 {
+		limit = 30
+	}
+	list, err := a.history.List(a.wailsCtx(), history.ListOptions{
+		Limit: limit, WorkflowID: in.WorkflowID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]WorkflowRunRow, 0, len(list))
+	for _, r := range list {
+		out = append(out, toRunRow(r))
+	}
+	return out, nil
+}
+
+// GetWorkflowRun 返回单条执行详情；找不到时返回错误。
+func (a *App) GetWorkflowRun(runID string) (*WorkflowRunDetail, error) {
+	if a.history == nil {
+		return nil, fmt.Errorf("workflow history is disabled")
+	}
+	if strings.TrimSpace(runID) == "" {
+		return nil, fmt.Errorf("run_id is required")
+	}
+	rec, err := a.history.Get(a.wailsCtx(), runID)
+	if err != nil {
+		return nil, err
+	}
+	if rec == nil {
+		return nil, fmt.Errorf("no such run: %s", runID)
+	}
+	detail := &WorkflowRunDetail{
+		Row:    toRunRow(*rec),
+		Inputs: rec.Inputs,
+	}
+	for _, s := range rec.Steps {
+		detail.Steps = append(detail.Steps, WorkflowRunStepView{
+			StepID:     s.StepID,
+			Command:    s.Command,
+			Recipe:     s.Recipe,
+			OK:         s.OK,
+			Skipped:    s.Skipped,
+			AuditID:    s.AuditID,
+			Attempts:   s.Attempts,
+			DurationMs: s.Duration.Milliseconds(),
+			ErrorCode:  s.ErrorCode,
+			ErrorMsg:   s.ErrorMsg,
+		})
+	}
+	return detail, nil
+}
+
+func toRunRow(r history.Record) WorkflowRunRow {
+	row := WorkflowRunRow{
+		RunID:      r.RunID,
+		WorkflowID: r.WorkflowID,
+		TargetID:   r.TargetID,
+		Caller:     r.Caller,
+		OK:         r.OK,
+		Error:      r.Error,
+		StartedAt:  r.StartedAt.UTC().Format(time.RFC3339),
+		FinishedAt: r.FinishedAt.UTC().Format(time.RFC3339),
+		DurationMs: r.Duration.Milliseconds(),
+		StepCount:  len(r.Steps),
+	}
+	for _, s := range r.Steps {
+		if s.Skipped {
+			row.SkippedCnt++
+		}
+		if s.Attempts > 1 {
+			row.RetriedCnt++
+		}
+		if !s.OK && !s.Skipped && row.FailedStep == "" {
+			row.FailedStep = s.StepID
+		}
+	}
+	return row
 }

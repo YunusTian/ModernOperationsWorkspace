@@ -12,12 +12,17 @@ import (
 
 // Result 是一次 Workflow 执行的汇总结果。
 type Result struct {
+	// RunID：本次执行的唯一 ID；由 Runner 在 Run 开始时生成，供历史查询定位。
+	RunID string `json:"run_id,omitempty"`
 	// WorkflowID：对应 Workflow.ID。
 	WorkflowID string `json:"workflow_id"`
 	// OK：所有步骤成功即为 true；任一步骤失败则为 false。
 	OK bool `json:"ok"`
 	// Steps：按执行顺序追加；未执行的步骤不出现。
 	Steps []StepResult `json:"steps"`
+	// StartedAt / FinishedAt：Run 的墙钟起止（Runner 填充）。
+	StartedAt  time.Time `json:"started_at,omitempty"`
+	FinishedAt time.Time `json:"finished_at,omitempty"`
 	// Duration：整个 Workflow 的墙钟耗时。
 	Duration time.Duration `json:"duration"`
 }

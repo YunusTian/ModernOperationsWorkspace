@@ -387,6 +387,45 @@ body,
   border-top: 1px solid #333;
 }
 
+.wf-history {
+  margin-top: 18px;
+  border-top: 1px solid #333;
+  padding-top: 10px;
+}
+.wf-history-hd {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.wf-history-toggle {
+  background: transparent;
+  border: 0;
+  color: #ddd;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.wf-history-toggle:hover {
+  color: #fff;
+}
+.wf-history-count {
+  color: #888;
+  font-size: 11px;
+}
+.wf-history-table td {
+  font-size: 12.5px;
+}
+.wf-history-icon {
+  text-align: center;
+  font-family: "Menlo", "Consolas", monospace;
+}
+.wf-history-id {
+  color: #888;
+  font-family: "Menlo", "Consolas", monospace;
+  font-size: 11px;
+}
+
 /* ---------------------------------------------------------------
    Docker Dashboard (v0.3 第二阶段)
 ---------------------------------------------------------------- */
