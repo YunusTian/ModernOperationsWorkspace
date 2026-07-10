@@ -70,10 +70,17 @@ func newEngineClient(dt *dialTarget) (*engineClient, error) {
 			tr.TLSClientConfig = tlsConf
 		}
 	case "npipe":
+		// v0.3 硬护栏：npipe 尚未实现。
+		// - Windows Named Pipe 需要 winio.DialPipe 依赖；MVP 用 UI/API 一致地拒绝
+		// - Validate 已允许保存 npipe:// scheme，但运行时到这里就会返回稳定错误码
+		// - 前端 TargetsPage 会在保存前拦截，尽量不让请求跑到这里
+		// 详见：docs/docker-plugin.md §4 传输协议
 		if runtime.GOOS != "windows" {
-			return nil, fmt.Errorf("npipe is supported only on windows")
+			return nil, sdk.NewError("DOCKER_NPIPE_UNSUPPORTED",
+				"npipe transport is only meaningful on Windows and is not implemented yet", nil)
 		}
-		return nil, fmt.Errorf("npipe transport not implemented in this MVP; use tcp:// or unix://")
+		return nil, sdk.NewError("DOCKER_NPIPE_UNSUPPORTED",
+			"npipe transport is not implemented in this release; use unix:// or tcp://", nil)
 	default:
 		return nil, fmt.Errorf("unsupported scheme %q", dt.Scheme)
 	}

@@ -12,6 +12,7 @@ import {
   App,
   DockerContainerVM,
   DockerExecExitEvent,
+  DockerTargetInfo,
   eventsOn,
 } from "../bindings";
 
@@ -45,6 +46,24 @@ export default function DockerExecDrawer({ targetID, container, onClose }: Props
   const [err, setErr] = useState<string>("");
   const [cmdInput, setCmdInput] = useState<string>(DEFAULT_CMD);
   const [running, setRunning] = useState<boolean>(false);
+  // v0.3 exec 能力探测：npipe / TLS Docker endpoint 暂不支持。
+  // 挂载时向后端 DescribeDockerTarget 查询一次；未支持时禁用 Start 并展示原因。
+  // 后端 docker_stage3.go DockerExecOpen 也会做同样的校验（双重护栏）。
+  const [capability, setCapability] = useState<DockerTargetInfo | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    App.DescribeDockerTarget(targetID)
+      .then((info) => {
+        if (!cancelled) setCapability(info);
+      })
+      .catch((e) => {
+        if (!cancelled) setErr("describe target: " + String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [targetID]);
 
   // 拆命令：允许空格分割，兼容 'sh -lc "top -b -n 1"' 这种简单场景。
   // 为避免引入 shell-quote 依赖，此处只做朴素处理；复杂参数请用 CLI。
@@ -60,6 +79,14 @@ export default function DockerExecDrawer({ targetID, container, onClose }: Props
 
   const startExec = async () => {
     if (running) return;
+    // 能力护栏：exec 不可用时禁止 Start。后端会二次防御。
+    if (capability && !capability.exec_supported) {
+      setErr(
+        capability.exec_unsupported_reason ||
+          "docker.exec 在此 target 上不可用",
+      );
+      return;
+    }
     setErr("");
     setStatus("starting…");
 
@@ -220,12 +247,25 @@ export default function DockerExecDrawer({ targetID, container, onClose }: Props
               spellCheck={false}
             />
           </label>
-          <button onClick={startExec} disabled={running}>
+          <button
+            onClick={startExec}
+            disabled={running || (capability !== null && !capability.exec_supported)}
+            title={
+              capability && !capability.exec_supported
+                ? capability.exec_unsupported_reason || ""
+                : ""
+            }
+          >
             {running ? "Running…" : "Start"}
           </button>
           <span className="dk-status">{status}</span>
           {err && <span className="error">{err}</span>}
         </div>
+        {capability && !capability.exec_supported && (
+          <div className="dk-exec-warning" style={{ color: "#e5c07b", padding: "6px 12px" }}>
+            ⚠ {capability.exec_unsupported_reason ?? "docker.exec 不可用"}
+          </div>
+        )}
         <div className="terminal dk-exec-term" ref={termRef} />
       </div>
     </div>

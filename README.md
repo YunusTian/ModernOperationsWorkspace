@@ -9,7 +9,7 @@
 `Core First` · `AI Optional` · `Plugin Everything`
 
 [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](./LICENSE)
-[![Status](https://img.shields.io/badge/status-v0.3_RC-brightgreen.svg)](./Architecture.md)
+[![Status](https://img.shields.io/badge/status-v0.3_RC_Ready-brightgreen.svg)](./Architecture.md)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://go.dev)
 [![Wails](https://img.shields.io/badge/Wails-v2-DF0000.svg)](https://wails.io)
 
@@ -154,7 +154,7 @@ go test -count=1 ./...
 | --- | --- | --- |
 | **v0.1** | 优秀的 SSH 客户端 + Plugin Framework 雏形（不接入 AI） | ✅ 已发布 |
 | **v0.2** | Command / Recipe / Workflow Engine（YAML DSL + `${var}` 插值 + Runner） | ✅ 已发布 |
-| **v0.3** | Docker Plugin + Docker Dashboard + Workflow 增强（parallel / when / on_failure / retry / rollback / 执行历史 JSONL） | 🚧 RC（发布前修正中） |
+| **v0.3** | Docker Plugin + Docker Dashboard + Workflow 增强（parallel / when / on_failure / retry / rollback / 执行历史 JSONL） | 🎯 RC 就绪，待发布 |
 | **v0.3.1** | 稳定性补丁：Docker 覆盖率补齐 · JSONL 文件锁/轮转 · Windows npipe · TLS exec | 📋 计划中 |
 | **v0.4** | AI Plugin + Provider 抽象（含 MCP 支持） | 📋 计划中 |
 | **v0.5** | PVE / K8s / DB Plugin + Marketplace 雏形 | 📋 计划中 |

@@ -257,6 +257,16 @@ export type DockerRmResult = {
   audit_id: string;
 };
 
+// DockerTargetInfo —— DescribeDockerTarget 的返回。
+// v0.3 用来判断 docker.exec 是否可用（npipe / TLS 两个 gap 由 v0.3.1 补齐）。
+export type DockerTargetInfo = {
+  scheme: string; // unix / tcp / npipe / unknown
+  host: string;
+  tls_enabled: boolean;
+  exec_supported: boolean;
+  exec_unsupported_reason?: string;
+};
+
 export type DockerImageVM = {
   id: string;
   parent_id?: string;
@@ -385,6 +395,8 @@ export const App = {
   // v0.3 第三阶段
   DockerRm: (targetID: string, in_: DockerRmInput) =>
     call<DockerRmResult>("DockerRm", targetID, in_),
+  DescribeDockerTarget: (targetID: string) =>
+    call<DockerTargetInfo>("DescribeDockerTarget", targetID),
   DockerImages: (targetID: string, in_: DockerImagesInput) =>
     call<DockerImagesResult>("DockerImages", targetID, in_),
   DockerVolumes: (targetID: string) =>

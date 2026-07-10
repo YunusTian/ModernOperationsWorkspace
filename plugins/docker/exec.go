@@ -131,6 +131,21 @@ func (c *execCmd) ExecuteStream(ctx context.Context, s sdk.Stream) error {
 	if err != nil {
 		return sdk.NewError("CONNECTION_INVALID", err.Error(), err)
 	}
+
+	// v0.3 硬护栏：exec 只支持 unix / plain tcp。
+	//   - TLS 场景需要在 raw conn 之上再做 tls.Handshake（详见 client.go dialHijack 注释）
+	//   - npipe 尚未实现（同样在 client.go 有明确错误）
+	// 提前拒绝，避免走到 dialHijack 才失败，前端 UI 也据此禁用入口。
+	// 详见：docs/docker-plugin.md §4 传输协议 与 §12.4 exec 安全边界。
+	if dt.Scheme == "tcp" && (dt.Creds.TLSVerify || dt.Creds.TLSCA != "") {
+		return sdk.NewError("DOCKER_EXEC_TLS_UNSUPPORTED",
+			"docker.exec over TLS is not supported in this release; scheduled for v0.3.1", nil)
+	}
+	if dt.Scheme == "npipe" {
+		return sdk.NewError("DOCKER_EXEC_NPIPE_UNSUPPORTED",
+			"docker.exec over Windows named pipe is not supported in this release; scheduled for v0.3.1", nil)
+	}
+
 	cli, err := newEngineClient(dt)
 	if err != nil {
 		return sdk.NewError("DOCKER_CLIENT_INVALID", err.Error(), err)

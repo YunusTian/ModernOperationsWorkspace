@@ -43,7 +43,7 @@ Docker Engine 有三种常见暴露方式，本 MVP 一次性覆盖：
 | `tcp://host:2375` | 远端裸 TCP | 不建议生产使用 |
 | `tcp://host:2376` + TLS | 生产远端 | 必须提供 `TLSCA` / `TLSCert` / `TLSKey` 三件套 |
 
-未实现：`ssh://` 隧道模式（v0.4+）、`npipe://`（Windows 命名管道 · v0.3.1 补齐；当前 `DockerCredentials` 白名单已允许该 scheme，但插件运行时会返回"未实现"错误，UI 层已在保存前提示并禁用相关入口）、TLS `docker.exec` 的 raw-hijack（v0.3.1 补齐）。
+未实现：`ssh://` 隧道模式（v0.4+）、`npipe://`（Windows 命名管道 · v0.3.1 补齐；当前 `DockerCredentials` 白名单允许该 scheme，但**运行时**返回稳定错误码 `DOCKER_NPIPE_UNSUPPORTED`，且 Desktop `TargetsPage` 保存前即拦截并给出提示，UI 层与后端双重防御）、TLS `docker.exec` 的 raw-hijack（v0.3.1 补齐；插件层若检测到 `Scheme=tcp && (TLSVerify||TLSCA!="")` 立即返回 `DOCKER_EXEC_TLS_UNSUPPORTED`；桌面 `DockerExecDrawer` 挂载时通过 `App.DescribeDockerTarget` 探测并禁用 Start 按钮）。
 
 ## 5. 凭据模型
 
@@ -79,6 +79,9 @@ Docker Engine 有三种常见暴露方式，本 MVP 一次性覆盖：
 | `DOCKER_UNAUTHORIZED` | 401 / 403 | ❌ |
 | `DOCKER_ENGINE_ERROR` | 5xx | ✅ |
 | `DOCKER_READ_FAILED` | 响应读取失败 | — |
+| `DOCKER_NPIPE_UNSUPPORTED` | 命中 `npipe://` scheme（v0.3 未实现；v0.3.1 补齐） | ❌ |
+| `DOCKER_EXEC_TLS_UNSUPPORTED` | `docker.exec` 命中 TLS Docker endpoint（v0.3 未实现；v0.3.1 补齐） | ❌ |
+| `DOCKER_EXEC_NPIPE_UNSUPPORTED` | `docker.exec` 命中 npipe 目标（同上） | ❌ |
 | `CANCELED` / `TIMEOUT` | ctx 结束 | — |
 
 ## 7. 权限与审计

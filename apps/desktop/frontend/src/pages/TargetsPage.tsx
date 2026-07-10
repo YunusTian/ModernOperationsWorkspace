@@ -77,6 +77,17 @@ export default function TargetsPage(props: Props) {
       setErr("id / host 必填");
       return;
     }
+    // v0.3 硬护栏：Windows named pipe 尚未实现。
+    // 后端 core/connection.DockerCredentials.Validate 出于向后兼容仍允许该
+    // scheme，但运行时会返回 DOCKER_NPIPE_UNSUPPORTED（见 plugins/docker/client.go）。
+    // UI 层在保存前直接拒绝，避免用户配置一个永远拨不通的 target。
+    // 计划在 v0.3.1 补齐 npipe 支持，届时移除本判断。
+    if (dockerForm.host.trim().toLowerCase().startsWith("npipe://")) {
+      setErr(
+        "npipe:// 目标暂不支持（计划 v0.3.1 补齐）。请使用 unix:// (Linux/macOS) 或 tcp://[+TLS] (远端)。",
+      );
+      return;
+    }
     try {
       await App.UpsertDockerTarget(dockerForm);
       setMode("closed");
@@ -286,6 +297,11 @@ export default function TargetsPage(props: Props) {
               }
               placeholder="unix:///var/run/docker.sock  |  tcp://10.0.0.5:2376"
             />
+            {dockerForm.host.trim().toLowerCase().startsWith("npipe://") && (
+              <small style={{ color: "#e5c07b" }}>
+                v0.3 暂不支持 npipe:// —— 请改用 unix:// 或 tcp://；v0.3.1 补齐 Windows named pipe。
+              </small>
+            )}
           </label>
           <label>
             API Version (optional)

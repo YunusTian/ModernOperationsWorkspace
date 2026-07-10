@@ -72,9 +72,14 @@ v0.3 主线：**Docker Plugin + Docker Dashboard + Workflow 引擎增强**。完
 
 ### 已知边界（发布前保留 · v0.3.1 补齐）
 
-- **Windows `npipe://`**：`DockerCredentials.Validate` 白名单已允许该 scheme，但插件运行时返回"未实现"；v0.3 采用 UI 层禁用入口 + 文档提示"Windows 请使用 TCP+TLS"作为过渡
-- **TLS + `docker.exec` 的 raw-hijack**：TLS 场景需在 raw conn 之上再 handshake，当前 MVP 仅支持 unix / plain tcp
-- **Release CI 产物缺口**：当前 [release.yml](./.github/workflows/release.yml) 只打包 CLI / SSH Plugin / Desktop，遗漏 `plugins/docker`；`body_path` 仍指向 `docs/v0.1-acceptance-checklist.md`。**打 v0.3.0 tag 前必须修正**（改用 v0.3 验收清单、追加 Docker Plugin 产物、追加 SHA-256 校验文件），详见 [v0.3 验收清单 §6](./docs/v0.3-acceptance-checklist.md#6-发布前必修补丁gating-v030-tag)
+- **Windows `npipe://`**：三重护栏
+  - `TargetsPage` 保存前拦截 `npipe://` scheme + 输入框实时提示
+  - 桌面后端 `DockerExecOpen` 二次校验
+  - 插件层 `newEngineClient` / `docker.exec` 返回稳定错误码 `DOCKER_NPIPE_UNSUPPORTED` / `DOCKER_EXEC_NPIPE_UNSUPPORTED`
+- **TLS + `docker.exec` 的 raw-hijack**：双重护栏
+  - 桌面新增 `App.DescribeDockerTarget` 返回 `exec_supported` + `exec_unsupported_reason`；`DockerExecDrawer` 挂载即调用，`exec_supported=false` 时禁用 Start
+  - 插件层 `docker.exec` 检测 `Scheme=tcp && (TLSVerify||TLSCA!="")` 立即返回 `DOCKER_EXEC_TLS_UNSUPPORTED`
+- **Release CI 产物缺口**：已修复 —— [release.yml](./.github/workflows/release.yml) 追加 `plugins/docker` 全 5 平台构建、`.sha256` + `SHA256SUMS` 校验文件、`body_path` 按 tag 动态解析（`v0.3.x → docs/v0.3-acceptance-checklist.md`）
 
 ### 依赖
 

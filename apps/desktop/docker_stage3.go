@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -206,6 +207,86 @@ func (a *App) dockerReadOnly(targetID, cmdID string, params any) (*command.Respo
 }
 
 // -----------------------------------------------------------------------------
+// DescribeDockerTarget —— 前端能力探测（供 UI 提前禁用 exec 入口）
+// -----------------------------------------------------------------------------
+
+// DockerTargetInfo 是 UI 用来决策的最小能力描述。
+// 不含任何凭据字段（TLS 密钥仍然只在插件内解密使用）。
+type DockerTargetInfo struct {
+	// Scheme 归一化后的 host scheme：unix / tcp / npipe。
+	Scheme string `json:"scheme"`
+	// Host 原始 host 字符串（例如 "tcp://10.0.0.5:2376"），供 UI 展示。
+	Host string `json:"host"`
+	// TLSEnabled 表示保存该目标时勾了 TLS 或提供了 CA。
+	TLSEnabled bool `json:"tls_enabled"`
+	// ExecSupported 综合 Scheme + TLSEnabled 判断 docker.exec 是否可用。
+	// v0.3 仅 unix + 明文 tcp 支持 exec；npipe / tcp+TLS 见 v0.3.1。
+	ExecSupported bool `json:"exec_supported"`
+	// ExecUnsupportedReason 当 ExecSupported=false 时的原因，UI 直接展示。
+	ExecUnsupportedReason string `json:"exec_unsupported_reason,omitempty"`
+}
+
+// DescribeDockerTarget 返回目标的能力元信息。
+// 不解密 TLS 材料本体：只根据 target/凭据里已存的 flag 与 host 字符串给结论。
+func (a *App) DescribeDockerTarget(targetID string) (*DockerTargetInfo, error) {
+	return a.describeDockerTargetInternal(targetID)
+}
+
+// describeDockerTargetInternal 是内部无 UI 依赖的实现，供 DockerExecOpen 前置调用。
+func (a *App) describeDockerTargetInternal(targetID string) (*DockerTargetInfo, error) {
+	t, ok := a.connMgr.Get(targetID)
+	if !ok {
+		return nil, fmt.Errorf("target %q not found", targetID)
+	}
+	if t.Type != "docker" {
+		return nil, fmt.Errorf("target %q is not a docker target", targetID)
+	}
+
+	info := &DockerTargetInfo{Host: t.Host}
+	switch {
+	case strings.HasPrefix(t.Host, "unix://"):
+		info.Scheme = "unix"
+	case strings.HasPrefix(t.Host, "tcp://"):
+		info.Scheme = "tcp"
+	case strings.HasPrefix(t.Host, "npipe://"):
+		info.Scheme = "npipe"
+	default:
+		info.Scheme = "unknown"
+	}
+
+	// 解密凭据只是为了读 TLSVerify / TLSCA 两个 bool/string；
+	// 上层调用频率低（保存 target 后 UI 刷新一次即可），成本可忽略。
+	if len(t.EncryptedCredentials) > 0 {
+		if conn, err := a.connMgr.Open(a.wailsCtx(), targetID); err == nil && conn != nil {
+			var creds struct {
+				TLSVerify bool   `json:"tls_verify,omitempty"`
+				TLSCA     string `json:"tls_ca,omitempty"`
+			}
+			_ = json.Unmarshal(conn.Credentials, &creds)
+			info.TLSEnabled = creds.TLSVerify || creds.TLSCA != ""
+		}
+	}
+
+	// 判定 exec 能力
+	switch {
+	case info.Scheme == "npipe":
+		info.ExecSupported = false
+		info.ExecUnsupportedReason =
+			"Windows named pipe (npipe://) 尚未实现，计划 v0.3.1 补齐"
+	case info.Scheme == "tcp" && info.TLSEnabled:
+		info.ExecSupported = false
+		info.ExecUnsupportedReason =
+			"docker.exec 暂不支持 TLS Docker endpoint（需要 raw-hijack over TLS handshake），计划 v0.3.1 补齐"
+	case info.Scheme == "unix" || info.Scheme == "tcp":
+		info.ExecSupported = true
+	default:
+		info.ExecSupported = false
+		info.ExecUnsupportedReason = "unknown scheme"
+	}
+	return info, nil
+}
+
+// -----------------------------------------------------------------------------
 // DockerExec —— 交互式（xterm）
 // -----------------------------------------------------------------------------
 //
@@ -248,6 +329,17 @@ func (a *App) DockerExecOpen(targetID string, in DockerExecOpenInput) (string, e
 	}
 	if len(in.Cmd) == 0 {
 		return "", fmt.Errorf("dashboard: cmd is required")
+	}
+	// v0.3 硬护栏：docker.exec 只支持 unix / plain tcp。
+	// 前端也会预检并禁用 Start 按钮；此处双重防御，防止任何绕过 UI 的直调。
+	// 详见 plugins/docker/exec.go 与 docs/docker-plugin.md §4 / §12.4。
+	if info, err := a.describeDockerTargetInternal(targetID); err == nil && info != nil {
+		if info.Scheme == "npipe" {
+			return "", fmt.Errorf("docker.exec: npipe transport is not supported in this release (v0.3.1)")
+		}
+		if info.Scheme == "tcp" && info.TLSEnabled {
+			return "", fmt.Errorf("docker.exec: TLS Docker endpoint is not supported for exec in this release (v0.3.1)")
+		}
 	}
 	sess := fmt.Sprintf("de-%d", dockerExecSeq.Add(1))
 	rootCtx := a.wailsCtx()
