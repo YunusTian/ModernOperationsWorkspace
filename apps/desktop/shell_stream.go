@@ -27,6 +27,7 @@ type desktopShellStream struct {
 	ctx       context.Context // Command 的 ctx（cancel → 结束流）
 	wailsCtx  context.Context // wails runtime 上下文，供 EventsEmit
 	sessionID string
+	auditID  string // 由 Engine.RunStream 在调用前注入
 	params    json.RawMessage
 	incoming  chan sdk.Incoming
 	finished  atomic.Bool
@@ -49,6 +50,10 @@ func newDesktopShellStream(ctx, wailsCtx context.Context, sessionID string) *des
 func (s *desktopShellStream) setParams(p json.RawMessage) { s.params = p }
 func (s *desktopShellStream) exitCode() int               { return int(s.exitCd.Load()) }
 
+// SetAuditID 由 Engine.RunStream 在调用 ExecuteStream 前注入，
+// 使 stream.AuditID() 与审计记录中的 audit_id 保持一致。
+func (s *desktopShellStream) SetAuditID(id string) { s.auditID = id }
+
 // SetConnection 由 App 在启动流之前挂上 core/connection 解出的连接。
 // 见 App.ShellOpen —— 因为 core/command.RunStream 只把连接写进 Invocation.Request，
 // 不会自动注入 stream，我们必须在这里显式绑定。
@@ -59,7 +64,12 @@ func (s *desktopShellStream) SetConnection(c *sdk.Connection) { s.connRef.Store(
 // -----------------------------------------------------------------------------
 
 func (s *desktopShellStream) Context() context.Context { return s.ctx }
-func (s *desktopShellStream) AuditID() string          { return s.sessionID }
+func (s *desktopShellStream) AuditID() string {
+	if s.auditID != "" {
+		return s.auditID
+	}
+	return s.sessionID
+}
 func (s *desktopShellStream) Caller() sdk.Caller       { return sdk.Caller{Type: sdk.CallerDesktop} }
 func (s *desktopShellStream) Confirmed() bool          { return true }
 func (s *desktopShellStream) RawParams() json.RawMessage {

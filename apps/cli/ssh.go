@@ -175,6 +175,7 @@ func runSSHShell(h *appHolder, targetID string, o *sshCmdOpts) error {
 type cliShellStream struct {
 	ctx      context.Context
 	conn     *sdk.Connection
+	auditID  string // 由 Engine.RunStream 在调用前注入
 	params   json.RawMessage
 	incoming chan sdk.Incoming
 	finished atomic.Bool
@@ -195,12 +196,16 @@ func newCLIShellStream(ctx context.Context, conn *sdk.Connection, params json.Ra
 
 func (s *cliShellStream) exitCode() int { return int(s.exitCd.Load()) }
 
+// SetAuditID 由 Engine.RunStream 在调用 ExecuteStream 前注入，
+// 使 stream.AuditID() 与审计记录中的 audit_id 保持一致。
+func (s *cliShellStream) SetAuditID(id string) { s.auditID = id }
+
 // -----------------------------------------------------------------------------
 // sdk.Stream 接口
 // -----------------------------------------------------------------------------
 
 func (s *cliShellStream) Context() context.Context   { return s.ctx }
-func (s *cliShellStream) AuditID() string            { return "" }
+func (s *cliShellStream) AuditID() string            { return s.auditID }
 func (s *cliShellStream) Caller() sdk.Caller         { return sdk.Caller{Type: sdk.CallerCLI} }
 func (s *cliShellStream) Confirmed() bool            { return true }
 func (s *cliShellStream) RawParams() json.RawMessage { return s.params }

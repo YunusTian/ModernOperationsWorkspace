@@ -177,6 +177,11 @@ func (e *Engine) RunStream(ctx context.Context, req Request, stream sdk.Stream) 
 		return err
 	}
 
+	// 将引擎生成的 AuditID 注入 stream，使插件端 s.AuditID() 与审计记录一致。
+	if as, ok := stream.(AuditIDSetter); ok {
+		as.SetAuditID(inv.AuditID)
+	}
+
 	// 审计：开始 / 结束
 	rec := newAuditRecord(inv)
 	rec.Streaming = true
@@ -229,6 +234,18 @@ func applyTimeout(ctx context.Context, d time.Duration) (context.Context, contex
 		return ctx, func() {}
 	}
 	return context.WithTimeout(ctx, d)
+}
+
+// -----------------------------------------------------------------------------
+// AuditIDSetter —— 流式 Command 的 AuditID 注入点
+// -----------------------------------------------------------------------------
+
+// AuditIDSetter 由 sdk.Stream 实现者可选实现。
+// Engine.RunStream 在调用 ExecuteStream 前调用 SetAuditID，
+// 把引擎统一生成的审计 ID 注入 stream，
+// 使插件端 s.AuditID() 与审计记录中的 audit_id 保持一致。
+type AuditIDSetter interface {
+	SetAuditID(id string)
 }
 
 // -----------------------------------------------------------------------------

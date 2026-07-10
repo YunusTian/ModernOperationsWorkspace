@@ -116,6 +116,13 @@ func (c *sftpListCmd) Execute(ctx context.Context, req *sdk.ExecuteRequest) (*sd
 	}
 	defer cleanup()
 
+	// 将相对路径（如 "."）解析为绝对路径，避免后续 joinPath 拼出 "./foo" 之
+	// 类的奇怪路径。RealPath 失败时回退到原始输入，不阻塞列表操作。
+	resolvedPath := p.Path
+	if abs, rpErr := sc.RealPath(p.Path); rpErr == nil && abs != "" {
+		resolvedPath = abs
+	}
+
 	infos, err := sc.ReadDir(p.Path)
 	if err != nil {
 		return nil, sdk.NewError("SFTP_LIST_FAILED", err.Error(), err)
@@ -133,7 +140,7 @@ func (c *sftpListCmd) Execute(ctx context.Context, req *sdk.ExecuteRequest) (*sd
 		})
 	}
 
-	data, err := json.Marshal(sftpListResult{Path: p.Path, Entries: entries})
+	data, err := json.Marshal(sftpListResult{Path: resolvedPath, Entries: entries})
 	if err != nil {
 		return nil, sdk.NewError("ENCODE_FAILED", err.Error(), err)
 	}
