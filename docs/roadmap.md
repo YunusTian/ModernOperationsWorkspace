@@ -30,7 +30,7 @@
 
 - **Docker Plugin**（作为独立进程 gRPC 插件）
   - 🔨 **第一阶段（MVP，已合入）**：`docker.list` / `docker.inspect` / `docker.start` / `docker.stop` / `docker.restart` / `docker.logs`（流式）— 详见 [docker-plugin.md](./docker-plugin.md)
-  - ⏳ 第三阶段：`docker.pull` / `docker.push` / `docker.rm`（Dangerous） / `docker.exec`（流式）
+  - 🔨 **第三阶段（已合入）**：`docker.rm`（Dangerous · 双重护栏）/ `docker.pull` / `docker.push`（流式 progress · X-Registry-Auth）/ `docker.exec`（双向流 · TTY / mux / resize / exit_code）— 详见 [docker-plugin.md §12](./docker-plugin.md#12-v03-第三阶段dockerrm--dockerpull--dockerpush--dockerexec)
 - **Docker Dashboard**（Desktop 新增 Tab）
   - 🔨 **第二阶段（已合入）**：容器列表（含 state 徽标） → inspect 抽屉 → 流式 logs 面板 → start / stop / restart 二次确认弹窗 — 详见 [docker-plugin.md §11](./docker-plugin.md#11-docker-dashboardv03-第二阶段)
   - ⏳ 第三阶段：镜像 / 卷 / 网络 / Compose 视图；`docker.rm` 前置弹窗；容器 exec 交互式终端

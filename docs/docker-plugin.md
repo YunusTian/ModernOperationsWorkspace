@@ -197,11 +197,109 @@ Targets 页
 
 - 镜像 / 卷 / 网络 视图
 - Compose 支持
-- 容器创建（`docker.create`）与 `docker.rm` 前置弹窗
+- 容器创建（`docker.create`）
 - 容器 exec 交互式终端（复用 Terminal xterm.js）
 - 容器资源统计（`/containers/{id}/stats`）
 
-## 12. 待讨论
+## 12. v0.3 第三阶段：`docker.rm` / `docker.pull` / `docker.push` / `docker.exec`
+
+本阶段补齐插件的"完整生命周期 + 镜像分发 + 交互式 exec"。仍**不引入** `github.com/docker/docker` 官方 SDK，全部用标准库 `net/http` 手写。
+
+### 12.1 命令总览
+
+| Command | Permission | Streaming | Engine 端点 |
+|---|---|---|---|
+| `docker.rm` | **Dangerous** | ✗ | `DELETE /containers/{id}?force&v` |
+| `docker.pull` | Execute | ✓ | `POST /images/create?fromImage&tag&platform` |
+| `docker.push` | Execute | ✓ | `POST /images/{name}/push?tag` |
+| `docker.exec` | Execute | ✓（双向） | `POST /containers/{id}/exec` → `POST /exec/{id}/start`（hijack）|
+
+### 12.2 `docker.rm`（不可逆）
+
+参数：
+
+```json
+{ "id": "<container>", "force": false, "volumes": false }
+```
+
+护栏：
+
+- `Permission=Dangerous` → Core 的 `AllowConfirmer` 中间件会拒绝 `Confirmed=false`
+- 插件层再做一次防御：`req.Confirmed == false` 时返回 `CONFIRMATION_REQUIRED`，即便 middleware 被绕过也不动 Engine
+- 只透传 `force` / `v`；**不暴露** `link=` 参数（误伤成本高）
+
+### 12.3 `docker.pull` / `docker.push`（流式 progress）
+
+参数：
+
+```json
+// pull
+{ "from_image": "nginx", "tag": "1.25", "platform": "linux/amd64",
+  "auth": { "username":"u", "password":"p", "serveraddress":"registry.example.com" } }
+
+// push
+{ "image": "registry.example.com/team/app", "tag": "v1",
+  "auth": { "username":"u", "password":"p" } }
+```
+
+协议：
+
+- 请求头 `X-Registry-Auth = base64.URLEncoding(json(auth))`
+  - `auth=nil` 时插件自动填 `base64("{}")` —— Engine 硬要求头字段存在
+  - `identitytoken` 用于短期令牌（ECR / GCR），与 username/password 二选一
+- Engine 响应体是 chunked JSON lines：`{"status":"...","progressDetail":{...},"id":"..."}` / `{"errorDetail":{...},"error":"..."}`
+- 插件按行 `json.Decode` → 每行 `s.Event(line)`；命中 `error` / `errorDetail` 立即返回 `sdk.Error`（不调 Finish）
+- 错误分类：从错误字符串启发式判断
+  - `unauthorized` / `authentication required` → `DOCKER_UNAUTHORIZED`
+  - `not found` / `manifest unknown` → `DOCKER_NOT_FOUND`
+  - `denied` → `DOCKER_FORBIDDEN`
+  - 其它 → `DOCKER_REGISTRY_ERROR`
+
+### 12.4 `docker.exec`（双向流）
+
+参数：
+
+```json
+{
+  "id": "<container>",
+  "cmd": ["sh","-lc","top -b -n 1"],
+  "user": "",
+  "working_dir": "",
+  "env": ["KEY=VAL"],
+  "tty": true,
+  "attach_stdin": true
+}
+```
+
+三步走：
+
+1. **create**：`POST /containers/{id}/exec` → 拿 `exec_id`
+2. **start**：手工发送 HTTP `POST /exec/{id}/start` + `Upgrade: tcp` → 拿到 hijacked `net.Conn`
+   - 无法用 `http.Client.Do`，因为 `Response.Body` 只读；插件在 `client.go: dialHijack` 里手写请求
+   - MVP **不支持 TLS hijack**（TLS 场景需在 raw conn 之上再 handshake，后续再补）
+3. **run**：
+   - Server → Client：`tty=false` 走 8 字节 mux 帧（复用 `pumpMux`）；`tty=true` 原始字节透传
+   - Client → Server：`s.Recv()` 上收到 `*sdk.Stdin` 直接 `netConn.Write`
+   - `*sdk.Signal(SignalWinch)` → `POST /exec/{id}/resize?h=&w=` （fire-and-forget）
+   - `SignalCancel/Int/Term/Kill` → cancel ctx → 关闭 conn
+4. **退出码**：`GET /exec/{id}/json`.ExitCode → 作为 `Finish` 的 `exitCode` 与 `execResult.ExitCode`
+
+安全边界：
+
+- `attach_stdin=false` 时收到 `Stdin` 直接丢弃（不算错误）
+- winch payload 校验：`rows>0 && cols>0` 才 resize
+- resize 失败绝不影响主流
+
+### 12.5 未纳入本阶段（v0.4 承接）
+
+- exec 场景的 TLS hijack
+- Detach key 转义（Ctrl-P Ctrl-Q）
+- `docker.kill`（`POST /containers/{id}/kill?signal=`）
+- `docker.create` / `docker.build` / `docker.tag`
+- 镜像 / 卷 / 网络 / Compose 视图（Dashboard 侧）
+- 容器 exec 交互式终端 UI（复用 xterm.js）
+
+## 13. 待讨论
 
 - [ ] `docker.list` 是否要暴露完整 `filters` 语法（当前只支持 `labels`）
 - [ ] `docker.inspect` 是否要在 Plugin 侧做字段裁剪，还是保持"原样透传 + UI 决定展示"
