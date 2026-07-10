@@ -1,28 +1,47 @@
-// DockerPage —— Docker Dashboard 主页面（v0.3 第二阶段）
+// DockerPage —— Docker Dashboard 主页面
 //
-// 主路径（严格顺序）：
+// v0.3 第二阶段 —— 容器 Tab：
 //   容器列表 (轮询 / 手动刷新)
 //     └─ 点击某行 → inspect 抽屉（只读）
 //     └─ 点击 "Logs" → 底部日志面板（订阅 wails 事件）
 //     └─ 点击 "Start / Stop / Restart" → 弹窗二次确认 → DockerLifecycle
 //
-// 不做的事（第三阶段承接）：镜像 / 卷 / 网络 / Compose / rm / exec / push / pull。
+// v0.3 第三阶段 —— 新增：
+//   - 容器行：Exec 按钮（xterm 抽屉）+ Remove 按钮（Dangerous 弹窗）
+//   - 顶部 Tab：Containers / Images / Volumes / Networks（后三者只读）
+//
+// 不纳入本版：Compose 视图 / image rm / volume prune / network rm。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   App,
   DockerContainerVM,
+  DockerImageVM,
   DockerLifecycleAction,
   DockerLogsExitEvent,
+  DockerNetworkVM,
+  DockerVolumeVM,
   eventsOn,
 } from "../bindings";
+import DockerExecDrawer from "./DockerExecDrawer";
 
 type Props = { targetID: string };
 
-type ConfirmState = {
-  action: DockerLifecycleAction;
-  container: DockerContainerVM;
-  timeoutSec: number;
-} | null;
+type ConfirmState =
+  | {
+      kind: "lifecycle";
+      action: DockerLifecycleAction;
+      container: DockerContainerVM;
+      timeoutSec: number;
+    }
+  | {
+      kind: "rm";
+      container: DockerContainerVM;
+      force: boolean;
+      volumes: boolean;
+    }
+  | null;
+
+type TabKey = "containers" | "images" | "volumes" | "networks";
 
 // -----------------------------------------------------------------------------
 // base64 → text 解码（复用 TerminalPage 的技巧但按 UTF-8 处理）
@@ -66,6 +85,19 @@ function isRunning(c: DockerContainerVM): boolean {
   return c.state === "running" || c.state === "restarting";
 }
 
+// humanBytes 显示常规数量级；用于 images size 列。
+function humanBytes(n: number | undefined): string {
+  if (!n || n <= 0) return "";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let v = n;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v < 10 && i > 0 ? 2 : 1)} ${units[i]}`;
+}
+
 // -----------------------------------------------------------------------------
 // 组件
 // -----------------------------------------------------------------------------
@@ -91,22 +123,60 @@ export default function DockerPage({ targetID }: Props) {
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
   const [confirmBusy, setConfirmBusy] = useState<boolean>(false);
 
+  // 第三阶段：Tab / 只读列表 / exec 抽屉
+  const [tab, setTab] = useState<TabKey>("containers");
+  const [images, setImages] = useState<DockerImageVM[]>([]);
+  const [volumes, setVolumes] = useState<DockerVolumeVM[]>([]);
+  const [networks, setNetworks] = useState<DockerNetworkVM[]>([]);
+  const [execFor, setExecFor] = useState<DockerContainerVM | null>(null);
+
   // -------- 列表加载 --------
 
   const refresh = useCallback(async () => {
     setErr("");
     setLoading(true);
     try {
-      const r = await App.DockerList(targetID, { all });
-      setContainers(r.containers ?? []);
-      setStatus(`ok · ${r.containers?.length ?? 0} containers · audit ${r.audit_id}`);
+      switch (tab) {
+        case "containers": {
+          const r = await App.DockerList(targetID, { all });
+          setContainers(r.containers ?? []);
+          setStatus(
+            `ok · ${r.containers?.length ?? 0} containers · audit ${r.audit_id}`,
+          );
+          break;
+        }
+        case "images": {
+          const r = await App.DockerImages(targetID, { all: true });
+          setImages(r.images ?? []);
+          setStatus(
+            `ok · ${r.images?.length ?? 0} images · audit ${r.audit_id}`,
+          );
+          break;
+        }
+        case "volumes": {
+          const r = await App.DockerVolumes(targetID);
+          setVolumes(r.volumes ?? []);
+          setStatus(
+            `ok · ${r.volumes?.length ?? 0} volumes · audit ${r.audit_id}`,
+          );
+          break;
+        }
+        case "networks": {
+          const r = await App.DockerNetworks(targetID);
+          setNetworks(r.networks ?? []);
+          setStatus(
+            `ok · ${r.networks?.length ?? 0} networks · audit ${r.audit_id}`,
+          );
+          break;
+        }
+      }
     } catch (e) {
       setErr(String(e));
       setStatus("failed");
     } finally {
       setLoading(false);
     }
-  }, [targetID, all]);
+  }, [targetID, all, tab]);
 
   useEffect(() => {
     refresh();
@@ -208,13 +278,23 @@ export default function DockerPage({ targetID }: Props) {
     return () => disposers.forEach((d) => d());
   }, [logsSess]);
 
-  // -------- 生命周期动作 二次确认 --------
+  // -------- 生命周期动作 / rm 二次确认 --------
 
   const askConfirm = (action: DockerLifecycleAction, c: DockerContainerVM) => {
     setConfirmState({
+      kind: "lifecycle",
       action,
       container: c,
       timeoutSec: action === "stop" || action === "restart" ? 10 : 0,
+    });
+  };
+  const askRm = (c: DockerContainerVM) => {
+    setConfirmState({
+      kind: "rm",
+      container: c,
+      // 运行中容器默认自动 force（对齐 `docker rm -f` 的常见用法）
+      force: isRunning(c),
+      volumes: false,
     });
   };
 
@@ -222,20 +302,30 @@ export default function DockerPage({ targetID }: Props) {
     if (!confirmState) return;
     setConfirmBusy(true);
     try {
-      const r = await App.DockerLifecycle(targetID, {
-        action: confirmState.action,
-        container: confirmState.container.id,
-        timeout_sec:
-          confirmState.timeoutSec > 0 ? confirmState.timeoutSec : undefined,
-        confirmed: true,
-      });
-      setStatus(
-        r.already_in_state
-          ? `${r.action} · already in state · audit ${r.audit_id}`
-          : `${r.action} ok · audit ${r.audit_id}`,
-      );
+      if (confirmState.kind === "lifecycle") {
+        const r = await App.DockerLifecycle(targetID, {
+          action: confirmState.action,
+          container: confirmState.container.id,
+          timeout_sec:
+            confirmState.timeoutSec > 0 ? confirmState.timeoutSec : undefined,
+          confirmed: true,
+        });
+        setStatus(
+          r.already_in_state
+            ? `${r.action} · already in state · audit ${r.audit_id}`
+            : `${r.action} ok · audit ${r.audit_id}`,
+        );
+      } else {
+        // rm
+        const r = await App.DockerRm(targetID, {
+          container: confirmState.container.id,
+          force: confirmState.force,
+          volumes: confirmState.volumes,
+          confirmed: true,
+        });
+        setStatus(`rm ok · id=${r.id.slice(0, 12)} · audit ${r.audit_id}`);
+      }
       setConfirmState(null);
-      // 刷新一次列表让状态变化立即可见
       refresh();
     } catch (e) {
       setErr(String(e));
@@ -252,88 +342,253 @@ export default function DockerPage({ targetID }: Props) {
 
   const rows = useMemo(() => containers, [containers]);
 
+  // 各 Tab 表格的 render 拆成独立函数，避免主 JSX 过长。
+  const renderContainersTable = () => {
+    if (rows.length === 0) {
+      return (
+        <p style={{ color: "#888" }}>
+          {loading ? "Loading containers…" : "No containers on this target."}
+        </p>
+      );
+    }
+    return (
+      <table className="table">
+        <thead>
+          <tr>
+            <th style={{ width: 90 }}>State</th>
+            <th>Name</th>
+            <th>Image</th>
+            <th>ID</th>
+            <th>Ports</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((c) => (
+            <tr key={c.id} onClick={() => openInspect(c)} style={{ cursor: "pointer" }}>
+              <td>
+                <span className={stateBadgeClass(c.state)}>{c.state}</span>
+              </td>
+              <td>{firstName(c.names)}</td>
+              <td className="dk-image">{c.image}</td>
+              <td className="dk-id">{shortID(c.id)}</td>
+              <td>
+                {(c.ports ?? []).map((p, i) => (
+                  <span key={i} className="pill">
+                    {p.public_port
+                      ? `${p.public_port}→${p.private_port}/${p.type ?? "tcp"}`
+                      : `${p.private_port}/${p.type ?? "tcp"}`}
+                  </span>
+                ))}
+              </td>
+              <td className="dk-status-cell">{c.status ?? ""}</td>
+              <td className="actions" onClick={(e) => e.stopPropagation()}>
+                <button
+                  disabled={!canStart(c)}
+                  onClick={() => askConfirm("start", c)}
+                >
+                  Start
+                </button>
+                <button
+                  disabled={!canRestart(c)}
+                  onClick={() => askConfirm("restart", c)}
+                >
+                  Restart
+                </button>
+                <button
+                  disabled={!canStop(c)}
+                  onClick={() => askConfirm("stop", c)}
+                >
+                  Stop
+                </button>
+                <button onClick={() => openLogs(c)}>Logs</button>
+                <button
+                  disabled={!isRunning(c)}
+                  onClick={() => setExecFor(c)}
+                  title={
+                    isRunning(c)
+                      ? "Open exec terminal"
+                      : "Container is not running"
+                  }
+                >
+                  Exec
+                </button>
+                <button
+                  className="dk-confirm-danger"
+                  onClick={() => askRm(c)}
+                  title="Remove container (irreversible)"
+                >
+                  Remove
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  };
+
+  const renderImagesTable = () => {
+    if (images.length === 0) {
+      return (
+        <p style={{ color: "#888" }}>
+          {loading ? "Loading images…" : "No images on this target."}
+        </p>
+      );
+    }
+    return (
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Repository:Tag</th>
+            <th>ID</th>
+            <th>Size</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {images.map((im) => (
+            <tr key={im.id}>
+              <td>
+                {(im.repo_tags ?? []).length > 0
+                  ? (im.repo_tags ?? []).join(", ")
+                  : "<none>"}
+              </td>
+              <td className="dk-id">
+                {im.id.startsWith("sha256:") ? im.id.slice(7, 19) : im.id.slice(0, 12)}
+              </td>
+              <td>{humanBytes(im.size)}</td>
+              <td>{im.created ? new Date(im.created * 1000).toLocaleString() : ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  };
+
+  const renderVolumesTable = () => {
+    if (volumes.length === 0) {
+      return (
+        <p style={{ color: "#888" }}>
+          {loading ? "Loading volumes…" : "No volumes on this target."}
+        </p>
+      );
+    }
+    return (
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Driver</th>
+            <th>Scope</th>
+            <th>Mountpoint</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {volumes.map((v) => (
+            <tr key={v.name}>
+              <td>{v.name}</td>
+              <td>{v.driver ?? ""}</td>
+              <td>{v.scope ?? ""}</td>
+              <td className="dk-image">{v.mountpoint ?? ""}</td>
+              <td>{v.created_at ?? ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  };
+
+  const renderNetworksTable = () => {
+    if (networks.length === 0) {
+      return (
+        <p style={{ color: "#888" }}>
+          {loading ? "Loading networks…" : "No networks on this target."}
+        </p>
+      );
+    }
+    return (
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Driver</th>
+            <th>Scope</th>
+            <th>Subnets</th>
+            <th>ID</th>
+          </tr>
+        </thead>
+        <tbody>
+          {networks.map((n) => (
+            <tr key={n.id}>
+              <td>{n.name}</td>
+              <td>{n.driver ?? ""}</td>
+              <td>
+                {n.scope ?? ""}
+                {n.internal && <span className="pill">internal</span>}
+                {n.attachable && <span className="pill">attachable</span>}
+              </td>
+              <td>
+                {(n.subnet_summary ?? []).map((s, i) => (
+                  <span key={i} className="pill">
+                    {s}
+                  </span>
+                ))}
+              </td>
+              <td className="dk-id">{n.id.slice(0, 12)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  };
+
   return (
     <>
       <div className="toolbar">
+        <div className="dk-tabs">
+          {(
+            [
+              ["containers", "Containers"],
+              ["images", "Images"],
+              ["volumes", "Volumes"],
+              ["networks", "Networks"],
+            ] as [TabKey, string][]
+          ).map(([k, label]) => (
+            <button
+              key={k}
+              className={"dk-tab" + (tab === k ? " active" : "")}
+              onClick={() => setTab(k)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <button onClick={refresh} disabled={loading}>
           {loading ? "Loading…" : "Refresh"}
         </button>
-        <label className="dk-check">
-          <input
-            type="checkbox"
-            checked={all}
-            onChange={(e) => setAll(e.target.checked)}
-          />
-          Show all (incl. exited)
-        </label>
+        {tab === "containers" && (
+          <label className="dk-check">
+            <input
+              type="checkbox"
+              checked={all}
+              onChange={(e) => setAll(e.target.checked)}
+            />
+            Show all (incl. exited)
+          </label>
+        )}
         <span style={{ flex: 1 }} />
         <span className="dk-status">{status}</span>
         {err && <span className="error">{err}</span>}
       </div>
 
       <div className="content dk-content">
-        {rows.length === 0 ? (
-          <p style={{ color: "#888" }}>
-            {loading ? "Loading containers…" : "No containers on this target."}
-          </p>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th style={{ width: 90 }}>State</th>
-                <th>Name</th>
-                <th>Image</th>
-                <th>ID</th>
-                <th>Ports</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((c) => (
-                <tr key={c.id} onClick={() => openInspect(c)} style={{ cursor: "pointer" }}>
-                  <td>
-                    <span className={stateBadgeClass(c.state)}>{c.state}</span>
-                  </td>
-                  <td>{firstName(c.names)}</td>
-                  <td className="dk-image">{c.image}</td>
-                  <td className="dk-id">{shortID(c.id)}</td>
-                  <td>
-                    {(c.ports ?? []).map((p, i) => (
-                      <span key={i} className="pill">
-                        {p.public_port
-                          ? `${p.public_port}→${p.private_port}/${p.type ?? "tcp"}`
-                          : `${p.private_port}/${p.type ?? "tcp"}`}
-                      </span>
-                    ))}
-                  </td>
-                  <td className="dk-status-cell">{c.status ?? ""}</td>
-                  <td className="actions" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      disabled={!canStart(c)}
-                      onClick={() => askConfirm("start", c)}
-                    >
-                      Start
-                    </button>
-                    <button
-                      disabled={!canRestart(c)}
-                      onClick={() => askConfirm("restart", c)}
-                    >
-                      Restart
-                    </button>
-                    <button
-                      disabled={!canStop(c)}
-                      onClick={() => askConfirm("stop", c)}
-                    >
-                      Stop
-                    </button>
-                    <button onClick={() => openLogs(c)}>Logs</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        {tab === "containers" && renderContainersTable()}
+        {tab === "images" && renderImagesTable()}
+        {tab === "volumes" && renderVolumesTable()}
+        {tab === "networks" && renderNetworksTable()}
       </div>
 
       {/* Inspect 抽屉 */}
@@ -408,34 +663,70 @@ export default function DockerPage({ targetID }: Props) {
         </div>
       )}
 
-      {/* 二次确认弹窗 */}
+      {/* 二次确认弹窗（lifecycle + rm 共用） */}
       {confirmState && (
         <div className="dk-modal" onClick={() => !confirmBusy && setConfirmState(null)}>
           <div className="dk-modal-inner" onClick={(e) => e.stopPropagation()}>
             <h3>
-              Confirm docker.<b>{confirmState.action}</b>
+              Confirm docker.
+              <b>{confirmState.kind === "rm" ? "rm" : confirmState.action}</b>
             </h3>
             <p className="wf-note">
-              This will run <code>docker.{confirmState.action}</code> on{" "}
-              <b>{firstName(confirmState.container.names)}</b> (
+              This will run{" "}
+              <code>
+                docker.
+                {confirmState.kind === "rm" ? "rm" : confirmState.action}
+              </code>{" "}
+              on <b>{firstName(confirmState.container.names)}</b> (
               {shortID(confirmState.container.id)}) via the connected Docker engine.
+              {confirmState.kind === "rm" && (
+                <>
+                  {" "}
+                  <b>This is irreversible.</b>
+                </>
+              )}
             </p>
-            {(confirmState.action === "stop" ||
-              confirmState.action === "restart") && (
-              <label className="dk-modal-line">
-                Grace period (seconds before SIGKILL)
-                <input
-                  type="number"
-                  min={0}
-                  value={confirmState.timeoutSec}
-                  onChange={(e) =>
-                    setConfirmState({
-                      ...confirmState,
-                      timeoutSec: Math.max(0, Number(e.target.value) || 0),
-                    })
-                  }
-                />
-              </label>
+            {confirmState.kind === "lifecycle" &&
+              (confirmState.action === "stop" ||
+                confirmState.action === "restart") && (
+                <label className="dk-modal-line">
+                  Grace period (seconds before SIGKILL)
+                  <input
+                    type="number"
+                    min={0}
+                    value={confirmState.timeoutSec}
+                    onChange={(e) =>
+                      setConfirmState({
+                        ...confirmState,
+                        timeoutSec: Math.max(0, Number(e.target.value) || 0),
+                      })
+                    }
+                  />
+                </label>
+              )}
+            {confirmState.kind === "rm" && (
+              <>
+                <label className="dk-modal-line">
+                  <input
+                    type="checkbox"
+                    checked={confirmState.force}
+                    onChange={(e) =>
+                      setConfirmState({ ...confirmState, force: e.target.checked })
+                    }
+                  />
+                  Force (SIGKILL if running)
+                </label>
+                <label className="dk-modal-line">
+                  <input
+                    type="checkbox"
+                    checked={confirmState.volumes}
+                    onChange={(e) =>
+                      setConfirmState({ ...confirmState, volumes: e.target.checked })
+                    }
+                  />
+                  Also remove anonymous volumes
+                </label>
+              </>
             )}
             <div className="dk-modal-actions">
               <button
@@ -450,11 +741,24 @@ export default function DockerPage({ targetID }: Props) {
                 disabled={confirmBusy}
                 className="dk-confirm-danger"
               >
-                {confirmBusy ? "Working…" : `Confirm ${confirmState.action}`}
+                {confirmBusy
+                  ? "Working…"
+                  : `Confirm ${
+                      confirmState.kind === "rm" ? "rm" : confirmState.action
+                    }`}
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Exec 抽屉 */}
+      {execFor && (
+        <DockerExecDrawer
+          targetID={targetID}
+          container={execFor}
+          onClose={() => setExecFor(null)}
+        />
       )}
     </>
   );

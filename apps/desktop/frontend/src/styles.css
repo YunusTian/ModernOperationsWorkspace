@@ -699,3 +699,62 @@ body,
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* v0.3 第三阶段：Tabs / Exec drawer */
+.dk-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-right: 8px;
+}
+.dk-tab {
+  padding: 4px 12px;
+  background: transparent;
+  border: 1px solid #333;
+  color: #aaa;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.dk-tab:hover {
+  color: #ddd;
+  border-color: #555;
+}
+.dk-tab.active {
+  color: #fff;
+  background: #1e3a5f;
+  border-color: #3b6db3;
+}
+.dk-exec-inner {
+  width: 80vw;
+  max-width: 1000px;
+  height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+.dk-exec-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #333;
+}
+.dk-exec-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #bbb;
+  font-size: 12px;
+}
+.dk-exec-toolbar input[type="text"] {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid #333;
+  border-radius: 3px;
+  background: #111;
+  color: #ddd;
+  font-family: "Menlo", "Consolas", monospace;
+}
+.dk-exec-term {
+  flex: 1;
+  min-height: 0;
+}

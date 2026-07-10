@@ -242,6 +242,86 @@ export type DockerLogsExitEvent = {
   error?: string;
 };
 
+// -----------------------------------------------------------------------------
+// Docker Dashboard 第三阶段：rm / images / volumes / networks / exec
+// -----------------------------------------------------------------------------
+
+export type DockerRmInput = {
+  container: string;
+  force?: boolean;
+  volumes?: boolean;
+  confirmed: boolean;
+};
+export type DockerRmResult = {
+  id: string;
+  audit_id: string;
+};
+
+export type DockerImageVM = {
+  id: string;
+  parent_id?: string;
+  repo_tags?: string[];
+  repo_digests?: string[];
+  created?: number;
+  size?: number;
+  virtual_size?: number;
+  labels?: Record<string, string>;
+  containers?: number;
+};
+export type DockerImagesInput = { all?: boolean };
+export type DockerImagesResult = {
+  images: DockerImageVM[];
+  audit_id: string;
+};
+
+export type DockerVolumeVM = {
+  name: string;
+  driver?: string;
+  mountpoint?: string;
+  scope?: string;
+  created_at?: string;
+  labels?: Record<string, string>;
+  options?: Record<string, string>;
+};
+export type DockerVolumesResult = {
+  volumes: DockerVolumeVM[];
+  warnings?: string[];
+  audit_id: string;
+};
+
+export type DockerNetworkVM = {
+  id: string;
+  name: string;
+  driver?: string;
+  scope?: string;
+  internal?: boolean;
+  attachable?: boolean;
+  created?: string;
+  labels?: Record<string, string>;
+  subnet_summary?: string[];
+};
+export type DockerNetworksResult = {
+  networks: DockerNetworkVM[];
+  audit_id: string;
+};
+
+// exec 会话
+export type DockerExecOpenInput = {
+  container: string;
+  cmd: string[];
+  user?: string;
+  working_dir?: string;
+  env?: string[];
+  tty?: boolean;
+  attach_stdin?: boolean;
+  rows?: number;
+  cols?: number;
+};
+export type DockerExecExitEvent = {
+  exit_code?: number;
+  error?: string;
+};
+
 // 通过 wails 运行时 (window.go.main.App) 调用方法；
 // 若绑定不存在（如 vite dev 未连上 wails），返回一个明确错误便于排查。
 function call<T = unknown>(name: string, ...args: unknown[]): Promise<T> {
@@ -301,6 +381,24 @@ export const App = {
     call<string>("DockerLogsOpen", targetID, in_),
   DockerLogsClose: (sessionID: string) =>
     call<void>("DockerLogsClose", sessionID),
+
+  // v0.3 第三阶段
+  DockerRm: (targetID: string, in_: DockerRmInput) =>
+    call<DockerRmResult>("DockerRm", targetID, in_),
+  DockerImages: (targetID: string, in_: DockerImagesInput) =>
+    call<DockerImagesResult>("DockerImages", targetID, in_),
+  DockerVolumes: (targetID: string) =>
+    call<DockerVolumesResult>("DockerVolumes", targetID),
+  DockerNetworks: (targetID: string) =>
+    call<DockerNetworksResult>("DockerNetworks", targetID),
+  DockerExecOpen: (targetID: string, in_: DockerExecOpenInput) =>
+    call<string>("DockerExecOpen", targetID, in_),
+  DockerExecWrite: (sessionID: string, dataB64: string) =>
+    call<void>("DockerExecWrite", sessionID, dataB64),
+  DockerExecResize: (sessionID: string, rows: number, cols: number) =>
+    call<void>("DockerExecResize", sessionID, rows, cols),
+  DockerExecClose: (sessionID: string) =>
+    call<void>("DockerExecClose", sessionID),
 };
 
 // -----------------------------------------------------------------------------

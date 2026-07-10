@@ -213,6 +213,9 @@ Targets 页
 | `docker.pull` | Execute | ✓ | `POST /images/create?fromImage&tag&platform` |
 | `docker.push` | Execute | ✓ | `POST /images/{name}/push?tag` |
 | `docker.exec` | Execute | ✓（双向） | `POST /containers/{id}/exec` → `POST /exec/{id}/start`（hijack）|
+| `docker.images` | Read | ✗ | `GET /images/json?all` |
+| `docker.volumes` | Read | ✗ | `GET /volumes` |
+| `docker.networks` | Read | ✗ | `GET /networks` |
 
 ### 12.2 `docker.rm`（不可逆）
 
@@ -298,6 +301,50 @@ Targets 页
 - `docker.create` / `docker.build` / `docker.tag`
 - 镜像 / 卷 / 网络 / Compose 视图（Dashboard 侧）
 - 容器 exec 交互式终端 UI（复用 xterm.js）
+
+### 12.6 Dashboard 侧的补齐（v0.3 第三阶段 UI）
+
+Dashboard 直接消费上面新增的插件命令：
+
+**新增 Tab（顶部切换）**：
+
+| Tab | 数据源 | 说明 |
+|---|---|---|
+| Containers | `docker.list` | 保留第二阶段 UI |
+| Images | `docker.images` | 新增：只读；显示 repo:tag / short id / size / created |
+| Volumes | `docker.volumes` | 新增：只读；显示 name / driver / scope / mountpoint / created |
+| Networks | `docker.networks` | 新增：只读；显示 name / driver / scope（含 internal/attachable 徽标）/ subnets |
+
+**新增 Actions（容器行）**：
+
+- `Exec`：仅在 `running/restarting` 时可用；打开 `DockerExecDrawer`（xterm.js）
+  - 用户在顶部输入框自定义命令（默认 `sh`），点 Start 建立 `docker.exec` 双向流
+  - 首帧 winch 会把当前 xterm 尺寸同步给远端，避免第一行错位
+  - 关闭抽屉自动 `DockerExecClose`
+  - 事件契约：`docker:exec:<sid>:{stdout,stderr,event,exit}`
+- `Remove`（红色）：打开二次确认弹窗
+  - Force：勾选 → 请求 `force=true`（运行中容器自动预勾）
+  - Also remove anonymous volumes → `volumes=true`
+  - 应用层再判 `Confirmed=true` + Command Engine `Dangerous` 中间件 = 双重护栏
+
+**新增 Wails 后端 API**：
+
+| 方法 | 说明 |
+|---|---|
+| `App.DockerRm(targetID, {container, force, volumes, confirmed})` | 前端必须显式 `confirmed=true` |
+| `App.DockerImages(targetID, {all})` | 只读 |
+| `App.DockerVolumes(targetID)` | 只读 |
+| `App.DockerNetworks(targetID)` | 只读 |
+| `App.DockerExecOpen(targetID, {container, cmd, tty, attach_stdin, rows, cols, ...})` → sessionID | 会话开启 |
+| `App.DockerExecWrite(sid, base64)` | 前端 → stdin |
+| `App.DockerExecResize(sid, rows, cols)` | TTY 尺寸 |
+| `App.DockerExecClose(sid)` | 幂等 |
+
+**未纳入 Dashboard**：
+
+- Compose 视图（编辑 / up / down）— 单独 RFC
+- Image rm / volume prune / network rm — 与 `docker.rm` 语义不同（需要独立命令），v0.4
+- Container `create` 表单（大量字段，需要专门抽屉设计），v0.4
 
 ## 13. 待讨论
 

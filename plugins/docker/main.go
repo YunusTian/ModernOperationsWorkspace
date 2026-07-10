@@ -64,6 +64,10 @@ func (p *DockerPlugin) Commands() []sdk.CommandHandler {
 		&pullCmd{},
 		&pushCmd{},
 		&execCmd{},
+		// Dashboard 第三阶段只读列表
+		&imagesCmd{},
+		&volumesCmd{},
+		&networksCmd{},
 	}
 }
 

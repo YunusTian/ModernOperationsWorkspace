@@ -33,7 +33,7 @@
   - 🔨 **第三阶段（已合入）**：`docker.rm`（Dangerous · 双重护栏）/ `docker.pull` / `docker.push`（流式 progress · X-Registry-Auth）/ `docker.exec`（双向流 · TTY / mux / resize / exit_code）— 详见 [docker-plugin.md §12](./docker-plugin.md#12-v03-第三阶段dockerrm--dockerpull--dockerpush--dockerexec)
 - **Docker Dashboard**（Desktop 新增 Tab）
   - 🔨 **第二阶段（已合入）**：容器列表（含 state 徽标） → inspect 抽屉 → 流式 logs 面板 → start / stop / restart 二次确认弹窗 — 详见 [docker-plugin.md §11](./docker-plugin.md#11-docker-dashboardv03-第二阶段)
-  - ⏳ 第三阶段：镜像 / 卷 / 网络 / Compose 视图；`docker.rm` 前置弹窗；容器 exec 交互式终端
+  - 🔨 **第三阶段（已合入）**：`docker.rm` 前置弹窗（force / volumes 可选，Dangerous 双重护栏）；容器 exec 交互式终端（xterm.js + TTY winch）；Images / Volumes / Networks 只读 Tab — 详见 [docker-plugin.md §12.6](./docker-plugin.md#126-dashboard-侧的补齐v03-第三阶段-ui)
 - **Workflow 引擎增强**（分批推进 · v0.3 全部合入 ✅）
   - 🔨 **第一批（已合入）**：`when: <expr>` 条件分支 — 详见 [workflow.md §7.4.1](./workflow.md#741-when-条件分支v03-第一批)
   - 🔨 **第二批（已合入）**：`retry: { max, backoff, max_backoff, exponential }` 单 step 重试 — 详见 [workflow.md §7.4.2](./workflow.md#742-retry-单-step-重试v03-第二批)

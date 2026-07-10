@@ -52,6 +52,9 @@ type App struct {
 	// docker.logs 流式会话
 	dockerLogs sync.Map // sessionID -> *dockerLogsSession
 
+	// docker.exec 流式会话（v0.3 第三阶段 Dashboard）
+	dockerExecs sync.Map // sessionID -> *dockerExecSession
+
 	// Workflow 侧的共享注册表；惰性构造，见 workflow.go: workflowRecipes()。
 	wfMu  sync.Mutex
 	wfReg *recipe.Registry
