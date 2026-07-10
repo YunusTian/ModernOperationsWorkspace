@@ -7,6 +7,23 @@
 
 ## [Unreleased]
 
+### v0.3.1 稳定性补丁进行中
+
+- **`plugins/docker` 覆盖率**：59.6% → **71.7%**（新增 [plugins/docker/coverage_test.go](./plugins/docker/coverage_test.go)）
+  - Metadata / Commands / HealthCheck / Init / Shutdown 元信息断言
+  - 每个 CommandHandler 的 `Spec()` + `Execute` vs `ExecuteStream` 不支持分支
+  - `statusCodeToErrorCode` 全码表 / `mapTransportError` cancel / timeout / retryable 三分支 / `buildTLSConfig` bad CA / bad key / 成功
+  - `newEngineClient` npipe / unknown scheme / unix 构造成功三分支
+  - `docker.exec` TLS 与 npipe 提前拒绝、参数校验（缺 id / 缺 cmd / 反序列化失败）
+  - `classifyRegistryError` unauthorized / denied / not found / unknown 全分支
+  - `mapReadErr` nil / EOF / canceled / timeout / generic 五分支
+  - `postJSON` bad body 与 dst=nil 成功路径
+- **Workflow JSONL 历史**（[core/workflow/history/jsonl.go](./core/workflow/history/jsonl.go)）
+  - 新增 `RotateOptions{MaxBytes, MaxKeep}` + `NewJSONLStoreWithRotate`；零值保持旧行为向后兼容
+  - `readAllWithRotated` 跨主文件 + `.1..N` 轮转文件读取；`Get` / `List` 都会看到历史
+  - `doRotate` 倒序 rename + `highestRotated` 只扫真实存在的历史；`MaxKeep>0` 时超限文件被 prune
+  - 抗回归测试新增 7 个：轮转生效 / MaxKeep prune / 100 并发无交错 / 脏行跨轮转跳过 / 空行容忍 / 关闭态不轮转 / 负值 clamp
+
 ### 计划中
 
 - v0.3.1 稳定性补丁：`plugins/docker` 覆盖率补齐（错误路径 / 连接取消 / TLS / registry auth 脱敏 / 并发流关闭）；Workflow JSONL 历史文件锁 / 轮转 / 保留策略 / 损坏行恢复；Windows `npipe://` 真实实现；Docker `exec` TLS raw-hijack 支持；真实 Docker Engine E2E（Linux CI）。

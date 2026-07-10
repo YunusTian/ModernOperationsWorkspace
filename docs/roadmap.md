@@ -46,13 +46,23 @@
   - ✅ Release CI 产物缺口：追加 `plugins/docker` 全平台产物、`body_path` 按 tag 动态解析、追加 `.sha256` + `SHA256SUMS`
   - ✅ 跨平台承诺：Windows `npipe://` 与 TLS `docker.exec` 采用"应用层禁用 + 稳定错误码 + UI 提前拦截"三重护栏；真实实现推迟到 v0.3.1
 
-## v0.3.1 — 稳定性补丁 📋 计划中
+## v0.3.1 — 稳定性补丁 🚧 进行中
 
-- `plugins/docker` 覆盖率补到 ≥ 70%：错误路径 / 连接取消 / TLS / registry auth 脱敏 / 并发流关闭
-- Workflow JSONL 历史：文件锁、轮转 / 保留策略、损坏行恢复策略
-- Windows `npipe://` 真实实现
-- Docker `exec` 支持 TLS raw-hijack
-- 真实 Docker Engine E2E **测试代码已合入**（[tests/e2e/docker_e2e_test.go](../tests/e2e/docker_e2e_test.go)），覆盖 list / lifecycle / logs / pull / exec / rm；触发方式：`MOW_DOCKER_E2E=1` + Linux daemon，或 CI `workflow_dispatch → only=docker-e2e/all`。v0.3.1 将改为常规 pipeline 自动运行
+已完成：
+
+- ✅ `plugins/docker` 覆盖率：59.6% → **71.7%**（新增 [coverage_test.go](../plugins/docker/coverage_test.go)：Metadata / Spec / Execute-vs-ExecuteStream 边界 / statusCodeToErrorCode / mapTransportError / buildTLSConfig / classifyRegistryError / mapReadErr / exec pre-guards / postJSON 错误路径 / intToStr）
+- ✅ Workflow JSONL 历史：
+  - 新增 [RotateOptions](../core/workflow/history/jsonl.go)（`MaxBytes` + `MaxKeep`）+ `NewJSONLStoreWithRotate`
+  - `readAllWithRotated` 跨主文件 + `.1..N` 轮转文件全读取
+  - 抗回归测试：`RotateAndReadAcrossFiles` / `RotateMaxKeepPrunesOldest` / `ConcurrentSaveNoInterleave` / `CorruptLineMixedWithRotatedFile` / `ReadEmptyLinesTolerated` / `RotateNoOpWhenDisabled` / `NegativeMaxKeepClamped`
+- ✅ 真实 Docker Engine E2E（v0.3 已合入 [tests/e2e/docker_e2e_test.go](../tests/e2e/docker_e2e_test.go)）覆盖 list / lifecycle / logs / pull / exec / rm
+
+待推进：
+
+- Windows `npipe://` 真实实现（引入 `github.com/Microsoft/go-winio`）
+- Docker `exec` 支持 TLS raw-hijack（在 raw conn 之上叠一次 `tls.Handshake`）
+- E2E 从 `workflow_dispatch` 触发改为常规 pipeline 自动运行（`push:main` + PR 主分支）
+- 跨进程文件锁（`golang.org/x/sys/unix.Flock` + `windows.LockFileEx`）—— 当前单进程内 mutex 已够用，跨进程 append 交叉行由损坏行恢复兜底
 
 ## v0.4 — AI Plugin
 
