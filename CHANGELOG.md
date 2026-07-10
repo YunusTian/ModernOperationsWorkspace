@@ -30,7 +30,11 @@
   - [.github/workflows/ci.yml](./.github/workflows/ci.yml) 三个循环（build / vet / test）纳入 `plugins/ai`
   - [docs/ai-plugin.md](./docs/ai-plugin.md)：v0.4 设计文档（分层 / 命令 / 权限 / v0.4.0/0.4.1/0.5 交付范围）
 
-### v0.3.1 稳定性补丁全部完成
+## [v0.3.1] - 2026-07-10
+
+v0.3.1 稳定性补丁：Docker Plugin 能力对齐（Windows npipe / TLS exec）+ Workflow 历史稳健性（轮转 + 跨进程锁）+ 覆盖率与 CI 收尾。完整明细见 [docs/roadmap.md#v03-Docker-Plugin--Docker-Dashboard--Workflow-增强-🎯-RC-就绪待发布](./docs/roadmap.md)。
+
+### 新增
 
 - **JSONL 跨进程文件锁**（[core/workflow/history/flock_unix.go](./core/workflow/history/flock_unix.go) + [flock_windows.go](./core/workflow/history/flock_windows.go)）
   - Unix：`golang.org/x/sys/unix.Flock(fd, LOCK_EX)` 阻塞式独占；进程崩溃时内核自动释放
@@ -80,7 +84,8 @@
 
 ### 计划中
 
-- v0.3.1 稳定性补丁：`plugins/docker` 覆盖率补齐（错误路径 / 连接取消 / TLS / registry auth 脱敏 / 并发流关闭）；Workflow JSONL 历史文件锁 / 轮转 / 保留策略 / 损坏行恢复；Windows `npipe://` 真实实现；Docker `exec` TLS raw-hijack 支持；真实 Docker Engine E2E（Linux CI）。
+- v0.4.1：真实 AI Provider（OpenAI / Anthropic）+ tool-use 闭环 + Desktop AI Chat 面板
+- v0.5：PVE / Kubernetes / 数据库 Plugin、MCP 双向对接、Marketplace 雏形
 
 ## [v0.3.0] - 2026-07-10
 
@@ -220,7 +225,8 @@ v0.3 主线：**Docker Plugin + Docker Dashboard + Workflow 引擎增强**。完
 - **E2E 测试体系**：Fake SSH Server + Test Rig，覆盖 exec / recipe / SFTP / Shell / 连接池等 23 个用例
 - **16 篇设计文档**：架构总纲、各模块 RFC、验收清单、Roadmap 等
 
-[Unreleased]: https://github.com/mow/mow/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/mow/mow/compare/v0.3.1...HEAD
+[v0.3.1]: https://github.com/mow/mow/releases/tag/v0.3.1
 [v0.3.0]: https://github.com/mow/mow/releases/tag/v0.3.0
 [v0.2.0]: https://github.com/mow/mow/releases/tag/v0.2.0
 [v0.1.0]: https://github.com/mow/mow/releases/tag/v0.1.0

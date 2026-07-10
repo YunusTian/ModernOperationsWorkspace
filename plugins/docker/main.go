@@ -32,10 +32,10 @@ func (p *DockerPlugin) Metadata() sdk.Metadata {
 	return sdk.Metadata{
 		ID:              "docker",
 		Name:            "Docker",
-		Version:         "0.1.0",
+		Version:         "0.3.0",
 		Author:          "mow",
 		Description:     "Docker container lifecycle and log streaming",
-		CoreVersion:     ">=0.1.0,<0.2.0",
+		CoreVersion:     ">=0.1.0",
 		ConnectionTypes: []string{"docker"},
 	}
 }
