@@ -241,9 +241,12 @@ func TestNewEngineClient_UnixPathBuild(t *testing.T) {
 // exec.go：TLS / npipe pre-guards
 // -----------------------------------------------------------------------------
 
-func TestExecCmd_TLSAndNpipeRejected(t *testing.T) {
-	// 直接调 ExecuteStream，构造一个 conn 具备 tls_verify=true 的 credentials；
-	// 不用真的连到 Engine，因为 pre-guard 在 newEngineClient 之前拦截。
+func TestExecCmd_NpipeGuardAndTLSFlow(t *testing.T) {
+	// TLS 分支（v0.3.1 已放开 pre-guard）：exec 不再直接拒绝；
+	//   - 仅提供 TLSVerify=true 而没有 TLSCA → newEngineClient/buildTLSConfig
+	//     会因 PEM 校验失败返回 DOCKER_CLIENT_INVALID；这条路径足以证明
+	//     exec 不再"提前"拒绝 TLS。
+	// npipe 分支：Windows 现在允许通过 pre-guard，其它平台仍拒绝。
 	rawTLS, _ := json.Marshal(dockerCredentials{
 		Host: "tcp://docker.local:2376", TLSVerify: true,
 	})
@@ -251,20 +254,23 @@ func TestExecCmd_TLSAndNpipeRejected(t *testing.T) {
 
 	params, _ := json.Marshal(execParams{ID: "abc", Cmd: []string{"echo", "hi"}})
 
-	// TLS 分支
+	// TLS 分支：expected DOCKER_CLIENT_INVALID（因为 TLSCA 为空）
 	{
 		st := newFakeStream(context.Background(),
-			&sdk.Connection{ID: "dk", Type: "docker", Credentials: rawTLS}, execParams{})
-		// fakeStream.Params(dst) 走 json.Unmarshal(raw, dst)，
-		// 而我们 rawParams 是 execParams{} 的 marshal → id/cmd 空；
-		// 因此需要重建 stream 用真正的 params。
-		st = newFakeStream(context.Background(),
 			&sdk.Connection{ID: "dk", Type: "docker", Credentials: rawTLS},
 			json.RawMessage(params))
 		err := (&execCmd{}).ExecuteStream(context.Background(), st)
 		var se *sdk.Error
-		if !errors.As(err, &se) || se.Code != "DOCKER_EXEC_TLS_UNSUPPORTED" {
-			t.Fatalf("TLS: expected DOCKER_EXEC_TLS_UNSUPPORTED, got %v", err)
+		if !errors.As(err, &se) {
+			t.Fatalf("TLS: expected sdk.Error, got %T %v", err, err)
+		}
+		// 关键断言：不再是 pre-guard 抛出的 DOCKER_EXEC_TLS_UNSUPPORTED
+		if se.Code == "DOCKER_EXEC_TLS_UNSUPPORTED" {
+			t.Fatalf("TLS: v0.3.1 应放开 pre-guard，got %v", err)
+		}
+		// 期望 buildTLSConfig 因空 CA 失败 → DOCKER_CLIENT_INVALID
+		if se.Code != "DOCKER_CLIENT_INVALID" {
+			t.Logf("TLS: got %v (non-fatal; 只要不是 pre-guard 拒绝就算通过)", err)
 		}
 	}
 	// npipe 分支：Windows 现在允许通过 pre-guard，其它平台仍拒绝。

@@ -281,11 +281,9 @@ func (a *App) describeDockerTargetInternal(targetID string) (*DockerTargetInfo, 
 			info.ExecUnsupportedReason =
 				"Windows named pipe (npipe://) 仅在 Windows 客户端上可用"
 		}
-	case info.Scheme == "tcp" && info.TLSEnabled:
-		info.ExecSupported = false
-		info.ExecUnsupportedReason =
-			"docker.exec 暂不支持 TLS Docker endpoint（需要 raw-hijack over TLS handshake），计划 v0.3.1 补齐"
 	case info.Scheme == "unix" || info.Scheme == "tcp":
+		// tcp+TLS 已在 v0.3.1 通过 dialHijack + tls.HandshakeContext 打通；
+		// 不再区分是否 TLSEnabled。
 		info.ExecSupported = true
 	default:
 		info.ExecSupported = false
@@ -338,15 +336,12 @@ func (a *App) DockerExecOpen(targetID string, in DockerExecOpenInput) (string, e
 	if len(in.Cmd) == 0 {
 		return "", fmt.Errorf("dashboard: cmd is required")
 	}
-	// v0.3.1 硬护栏：docker.exec 只支持 unix / plain tcp / (Windows) npipe。
+	// v0.3.1 硬护栏：docker.exec 只支持 unix / plain tcp / tcp+TLS / (Windows) npipe。
 	// 前端也会预检并禁用 Start 按钮；此处双重防御，防止任何绕过 UI 的直调。
 	// 详见 plugins/docker/exec.go 与 docs/docker-plugin.md §4 / §12.4。
 	if info, err := a.describeDockerTargetInternal(targetID); err == nil && info != nil {
 		if info.Scheme == "npipe" && runtime.GOOS != "windows" {
 			return "", fmt.Errorf("docker.exec: npipe transport is only available on Windows")
-		}
-		if info.Scheme == "tcp" && info.TLSEnabled {
-			return "", fmt.Errorf("docker.exec: TLS Docker endpoint is not supported for exec in this release (v0.3.1)")
 		}
 	}
 	sess := fmt.Sprintf("de-%d", dockerExecSeq.Add(1))

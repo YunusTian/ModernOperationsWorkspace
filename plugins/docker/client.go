@@ -37,6 +37,10 @@ type engineClient struct {
 	apiPrefix  string // 例："/v1.44"，可能为空
 	dialScheme string // unix / tcp / npipe
 	dialAddr   string
+	// tlsCfg 仅在 Scheme=tcp && (TLSVerify||TLSCA) 时非 nil。
+	// 常规 HTTP 请求走 http.Transport.TLSClientConfig；raw-hijack（docker.exec）
+	// 需要绕过 net/http 自行拨号，必须能拿到同一份 tls.Config。
+	tlsCfg *tls.Config
 }
 
 func newEngineClient(dt *dialTarget) (*engineClient, error) {
@@ -48,6 +52,7 @@ func newEngineClient(dt *dialTarget) (*engineClient, error) {
 		IdleConnTimeout:    30 * time.Second,
 	}
 
+	var tlsConf *tls.Config
 	switch dt.Scheme {
 	case "unix":
 		addr := dt.NetAddr
@@ -62,7 +67,8 @@ func newEngineClient(dt *dialTarget) (*engineClient, error) {
 			return d.DialContext(ctx, "tcp", addr)
 		}
 		if dt.Creds.TLSVerify || dt.Creds.TLSCA != "" {
-			tlsConf, err := buildTLSConfig(&dt.Creds, dt.NetAddr)
+			var err error
+			tlsConf, err = buildTLSConfig(&dt.Creds, dt.NetAddr)
 			if err != nil {
 				return nil, err
 			}
@@ -93,6 +99,7 @@ func newEngineClient(dt *dialTarget) (*engineClient, error) {
 		dialScheme: dt.Scheme,
 		dialAddr:   dt.NetAddr,
 		apiPrefix:  dt.APIVersion,
+		tlsCfg:     tlsConf,
 	}
 
 	// baseHost：unix / npipe 时用占位符 "docker"；tcp 时用真实 host:port。
@@ -115,30 +122,44 @@ func (c *engineClient) closeIdle() {
 	}
 }
 
-// dialHijack 建立一条**独占**的 TCP / unix 连接，向 Engine 发送 POST + Upgrade 请求，
+// dialHijack 建立一条**独占**的 TCP / unix / npipe 连接，向 Engine 发送 POST + Upgrade 请求，
 // 消费掉 101 Switching Protocols 头，然后把 net.Conn 直接返回给调用方做双向流。
 //
 // 用于 docker.exec 场景：/exec/{id}/start 走 raw multiplexed stream，
 // Go 的 net/http 无法在 200 OK 后拿到底层连接（Response.Body 只读），因此
 // 手工发协议。
+//
+// TLS 支持（v0.3.1）：
+//   - 若 c.tlsCfg != nil（即 tcp+TLS），在拨号得到的原始 conn 之上做一次
+//     tls.Client(conn, tlsCfg).HandshakeContext；之后所有 request/response
+//     字节都走 TLS record。
+//   - HTTP 请求行里的 Host 头保持 "docker" 占位；SNI 与证书校验用的 ServerName
+//     已在 buildTLSConfig 里设成真实 host。
 func (c *engineClient) dialHijack(
 	ctx context.Context, path string, query url.Values, body any,
 ) (net.Conn, error) {
-	var dialer func(context.Context) (net.Conn, error)
 	tr, _ := c.httpc.Transport.(*http.Transport)
 	if tr == nil || tr.DialContext == nil {
 		return nil, sdk.NewError("DOCKER_CLIENT_INVALID", "transport has no dialer", nil)
 	}
-	dialer = func(ctx context.Context) (net.Conn, error) {
-		return tr.DialContext(ctx, "tcp", "docker")
-	}
-
-	conn, err := dialer(ctx)
+	// 拨号：走 Transport 的 DialContext，能同时覆盖 unix / tcp / npipe 三种 scheme。
+	// network/addr 两个占位参数已被各分支忽略，这里传 "tcp"/"docker" 只是为了
+	// 兼容 DialContext 签名。
+	rawConn, err := tr.DialContext(ctx, "tcp", "docker")
 	if err != nil {
 		return nil, mapTransportError(err)
 	}
-	// TLS 场景需要在 raw conn 之上再握手；MVP 阶段 exec 只支持 tcp / unix 明文。
-	// 若走 TLS，需要引入 tls.Client(conn, tlsCfg).Handshake()——当前跳过。
+	conn := rawConn
+	// TLS 场景：在 raw conn 之上再握手。
+	if c.tlsCfg != nil {
+		tlsConn := tls.Client(rawConn, c.tlsCfg)
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			rawConn.Close()
+			return nil, sdk.NewError("DOCKER_TLS_HANDSHAKE_FAILED", err.Error(), err)
+		}
+		conn = tlsConn
+	}
+
 	// buildRequest 与 do 保持一致（无 apiPrefix 会被 Engine 拒），沿用 apiPrefix。
 	full := c.apiPrefix + path
 	if len(query) > 0 {

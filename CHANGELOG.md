@@ -9,24 +9,33 @@
 
 ### v0.3.1 稳定性补丁进行中
 
+- **TLS `docker.exec` raw-hijack**（[plugins/docker/client.go](./plugins/docker/client.go) `dialHijack` + [exec.go](./plugins/docker/exec.go)）
+  - `engineClient` 新增 `tlsCfg *tls.Config` 字段；`newEngineClient` 在 tcp+TLS 分支同时挂给 `http.Transport.TLSClientConfig` 与 `c.tlsCfg`
+  - `dialHijack` 拨号后若 `c.tlsCfg != nil` 就在 raw conn 上做 `tls.Client(conn, cfg).HandshakeContext(ctx)`；握手失败返回稳定错误码 `DOCKER_TLS_HANDSHAKE_FAILED`（retryable）
+  - SNI 与证书校验用 `buildTLSConfig` 里预设的 `ServerName`；HTTP 请求行的 Host 头保持 "docker" 占位
+  - `plugins/docker/exec.go` 移除 TLS pre-guard；仅保留非 Windows 平台上的 npipe pre-guard
+  - 桌面 [`App.DescribeDockerTarget`](./apps/desktop/docker_stage3.go)：`tcp+TLS` 分支从 "exec_supported=false" 改为 "true"（合并到 unix/tcp）
+  - 桌面 [`App.DockerExecOpen`](./apps/desktop/docker_stage3.go)：移除 TLS 硬拒分支
+  - 新增 [hijack_tls_test.go](./plugins/docker/hijack_tls_test.go)：`httptest.NewTLSServer` + 手工 hijack 响应，验证 TLS raw-hijack 主路径（成功读到 payload）与握手失败错误码
 - **Windows `npipe://` 真实实现**（[plugins/docker/npipe_windows.go](./plugins/docker/npipe_windows.go) + [npipe_other.go](./plugins/docker/npipe_other.go)）
   - 引入 `github.com/Microsoft/go-winio v0.6.2`，通过 `winio.DialPipeContext` 拨号；`\\.\pipe\xxx` 与 `//./pipe/xxx` 两种形式均可
   - 平台文件 build tag 隔离：非 Windows 构建不会引入 winio 依赖，`CGO_ENABLED=0` 跨平台交叉编译保持零 CGO
   - `plugins/docker/client.go` 的 `newEngineClient` npipe 分支：Windows 装配 DialContext；其它平台返回 `DOCKER_NPIPE_UNSUPPORTED`
   - `plugins/docker/exec.go` 的 pre-guard：npipe 仅在 `!npipeSupported` 时拒绝（改自 v0.3 的无条件拒绝）
-  - 桌面 [`App.DescribeDockerTarget`](./apps/desktop/docker_stage3.go)：新增 `runtime.GOOS == "windows"` 判定，Windows 客户端 `exec_supported=true`；非 Windows 保留禁用与提示原因
+  - 桌面 [`App.DescribeDockerTarget`](./apps/desktop/docker_stage3.go)：新增 `runtime.GOOS == "windows"` 判定
   - 桌面 [`App.DockerExecOpen`](./apps/desktop/docker_stage3.go)：`npipe && GOOS!=windows` 时拒绝调用（双重防御）
   - 前端 [`TargetsPage`](./apps/desktop/frontend/src/pages/TargetsPage.tsx)：不再阻止保存 `npipe://` target；输入框下方黄字改为 "npipe:// 仅在 Windows 桌面上可用（v0.3.1）；非 Windows 客户端保存后 exec 会被禁用"
   - 新增 [`npipe_test.go`](./plugins/docker/npipe_test.go)：跨平台 dial helper 行为断言
-- **`plugins/docker` 覆盖率**：59.6% → **71.6%**（新增 [plugins/docker/coverage_test.go](./plugins/docker/coverage_test.go)）
+- **`plugins/docker` 覆盖率**：59.6% → **76.0%**（新增 [plugins/docker/coverage_test.go](./plugins/docker/coverage_test.go) + hijack_tls_test.go + npipe_test.go）
   - Metadata / Commands / HealthCheck / Init / Shutdown 元信息断言
   - 每个 CommandHandler 的 `Spec()` + `Execute` vs `ExecuteStream` 不支持分支
   - `statusCodeToErrorCode` 全码表 / `mapTransportError` cancel / timeout / retryable 三分支 / `buildTLSConfig` bad CA / bad key / 成功
   - `newEngineClient` npipe（平台分叉） / unknown scheme / unix 构造成功三分支
-  - `docker.exec` TLS 与 npipe pre-guard、参数校验（缺 id / 缺 cmd / 反序列化失败）
+  - `docker.exec` npipe pre-guard / TLS 放行、参数校验（缺 id / 缺 cmd / 反序列化失败）
   - `classifyRegistryError` unauthorized / denied / not found / unknown 全分支
   - `mapReadErr` nil / EOF / canceled / timeout / generic 五分支
   - `postJSON` bad body 与 dst=nil 成功路径
+  - `dialHijack` TLS 成功 + 握手失败两条路径
 - **Workflow JSONL 历史**（[core/workflow/history/jsonl.go](./core/workflow/history/jsonl.go)）
   - 新增 `RotateOptions{MaxBytes, MaxKeep}` + `NewJSONLStoreWithRotate`；零值保持旧行为向后兼容
   - `readAllWithRotated` 跨主文件 + `.1..N` 轮转文件读取；`Get` / `List` 都会看到历史

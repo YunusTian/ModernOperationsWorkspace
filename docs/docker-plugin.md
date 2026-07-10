@@ -43,9 +43,11 @@ Docker Engine 有三种常见暴露方式，本 MVP 一次性覆盖：
 | `tcp://host:2375` | 远端裸 TCP | 不建议生产使用 |
 | `tcp://host:2376` + TLS | 生产远端 | 必须提供 `TLSCA` / `TLSCert` / `TLSKey` 三件套 |
 
-未实现：`ssh://` 隧道模式（v0.4+）、TLS `docker.exec` 的 raw-hijack（v0.3.1 剩余项；插件层若检测到 `Scheme=tcp && (TLSVerify||TLSCA!="")` 立即返回 `DOCKER_EXEC_TLS_UNSUPPORTED`；桌面 `DockerExecDrawer` 挂载时通过 `App.DescribeDockerTarget` 探测并禁用 Start 按钮）。
+未实现：`ssh://` 隧道模式（v0.4+）。
 
-**v0.3.1 已支持**：Windows `npipe://`（引入 `github.com/Microsoft/go-winio`，通过 `winio.DialPipeContext` 拨号；`plugins/docker/npipe_{windows,other}.go` 拆平台文件，非 Windows 构建不引入 winio 依赖）。桌面 `App.DescribeDockerTarget` 根据 `runtime.GOOS` 决定 `exec_supported`：Windows 客户端 → true；非 Windows 客户端连 npipe → false + "仅 Windows 客户端上可用"。
+**v0.3.1 已支持**：
+- Windows `npipe://`（引入 `github.com/Microsoft/go-winio`，通过 `winio.DialPipeContext` 拨号；`plugins/docker/npipe_{windows,other}.go` 拆平台文件，非 Windows 构建不引入 winio 依赖）。桌面 `App.DescribeDockerTarget` 根据 `runtime.GOOS` 决定 `exec_supported`：Windows 客户端 → true；非 Windows 客户端连 npipe → false + "仅 Windows 客户端上可用"。
+- TLS `docker.exec` raw-hijack：`engineClient` 存储 `tls.Config`，`dialHijack` 在 raw conn 之上做 `tls.Client(conn, cfg).HandshakeContext`。SNI 与证书校验使用 `buildTLSConfig` 里配置好的 `ServerName`；HTTP 请求行 Host 头保持 "docker" 占位。握手失败 → 稳定错误码 `DOCKER_TLS_HANDSHAKE_FAILED`。桌面 `DescribeDockerTarget` 不再对 `tcp+TLS` 禁用 exec。
 
 ## 5. 凭据模型
 
@@ -81,9 +83,9 @@ Docker Engine 有三种常见暴露方式，本 MVP 一次性覆盖：
 | `DOCKER_UNAUTHORIZED` | 401 / 403 | ❌ |
 | `DOCKER_ENGINE_ERROR` | 5xx | ✅ |
 | `DOCKER_READ_FAILED` | 响应读取失败 | — |
-| `DOCKER_NPIPE_UNSUPPORTED` | 命中 `npipe://` scheme（v0.3 未实现；v0.3.1 补齐） | ❌ |
-| `DOCKER_EXEC_TLS_UNSUPPORTED` | `docker.exec` 命中 TLS Docker endpoint（v0.3 未实现；v0.3.1 补齐） | ❌ |
-| `DOCKER_EXEC_NPIPE_UNSUPPORTED` | `docker.exec` 命中 npipe 目标（同上） | ❌ |
+| `DOCKER_NPIPE_UNSUPPORTED` | 命中 `npipe://` scheme 且当前平台非 Windows | ❌ |
+| `DOCKER_EXEC_NPIPE_UNSUPPORTED` | `docker.exec` 命中 npipe 目标且当前平台非 Windows | ❌ |
+| `DOCKER_TLS_HANDSHAKE_FAILED` | `docker.exec` raw-hijack 中 `tls.Handshake` 失败 | ✅（可重试） |
 | `CANCELED` / `TIMEOUT` | ctx 结束 | — |
 
 ## 7. 权限与审计
