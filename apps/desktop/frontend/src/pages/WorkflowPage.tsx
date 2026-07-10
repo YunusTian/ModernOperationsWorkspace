@@ -18,13 +18,22 @@ type LogEntry = {
   stepId: string;
   ref: string;
   kind: string;
-  status: "running" | "ok" | "fail" | "skipped" | "retrying";
+  status:
+    | "running"
+    | "ok"
+    | "fail"
+    | "skipped"
+    | "retrying"
+    | "rollback-ok"
+    | "rollback-fail"
+    | "rollback-skip";
   when?: string;
   attempts?: number;
   retryHint?: string; // 例："attempt 2/3, waiting 500ms — io error"
   durationMs?: number;
   errorCode?: string;
   errorMsg?: string;
+  isRollback?: boolean;
 };
 
 // 生成新的 sessionID；使用毫秒时间戳 + 随机后缀避免碰撞。
@@ -155,6 +164,25 @@ export default function WorkflowPage({ activeTarget }: Props) {
     const offStep = eventsOn(`workflow:${sess}:step`, (...data) => {
       const ev = data[0] as WorkflowStepEvent;
       setLogs((prev) => {
+        // rollback 事件生成独立行，不覆盖主 step
+        if (ev.phase === "rollback") {
+          let status: LogEntry["status"];
+          if (ev.skipped) status = "rollback-skip";
+          else if (ev.rollback_ok) status = "rollback-ok";
+          else status = "rollback-fail";
+          const entry: LogEntry = {
+            key: `rb:${ev.step_id}:${prev.length}`,
+            stepId: ev.step_id,
+            ref: ev.ref,
+            kind: ev.kind,
+            status,
+            durationMs: ev.duration_ms,
+            errorCode: ev.error_code,
+            errorMsg: ev.error_msg,
+            isRollback: true,
+          };
+          return [...prev, entry];
+        }
         const key = `${ev.index}:${ev.step_id}`;
         const next = [...prev];
         const idx = next.findIndex((x) => x.key === key);
@@ -339,8 +367,17 @@ export default function WorkflowPage({ activeTarget }: Props) {
                   ? "⤼"
                   : e.status === "retrying"
                   ? "↻"
+                  : e.status === "rollback-ok"
+                  ? "↩"
+                  : e.status === "rollback-skip"
+                  ? "⤼"
+                  : e.status === "rollback-fail"
+                  ? "↩"
                   : "✗"}
               </span>
+              {e.isRollback && (
+                <span className="wf-rollback-tag">rollback</span>
+              )}
               <span className="wf-step">{e.stepId}</span>
               <span className="wf-ref">
                 ({e.kind}:{e.ref})
@@ -354,9 +391,13 @@ export default function WorkflowPage({ activeTarget }: Props) {
               {e.status === "skipped" && e.when && (
                 <span className="wf-when">when: {e.when}</span>
               )}
+              {e.status === "rollback-skip" && (
+                <span className="wf-when">no compensate</span>
+              )}
               {e.durationMs !== undefined &&
                 e.status !== "skipped" &&
-                e.status !== "retrying" && (
+                e.status !== "retrying" &&
+                e.status !== "rollback-skip" && (
                   <span className="wf-dur">{e.durationMs}ms</span>
                 )}
               {e.errorCode && (

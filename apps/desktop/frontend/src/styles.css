@@ -347,6 +347,34 @@ body,
 .wf-log-retrying {
   color: #d0a24a;
 }
+.wf-log-rollback-ok .wf-icon {
+  color: #7ab8ff;
+}
+.wf-log-rollback-ok {
+  color: #7ab8ff;
+}
+.wf-log-rollback-fail .wf-icon {
+  color: #f66;
+}
+.wf-log-rollback-fail {
+  color: #f66;
+}
+.wf-log-rollback-skip .wf-icon {
+  color: #888;
+}
+.wf-log-rollback-skip {
+  color: #888;
+}
+.wf-rollback-tag {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: #123a5c;
+  color: #7ab8ff;
+  font-size: 10px;
+  font-family: "Menlo", "Consolas", monospace;
+  margin-right: 2px;
+}
 .wf-retry-hint {
   color: #d0a24a;
   font-family: "Menlo", "Consolas", monospace;

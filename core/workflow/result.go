@@ -20,6 +20,9 @@ type Result struct {
 	OK bool `json:"ok"`
 	// Steps：按执行顺序追加；未执行的步骤不出现。
 	Steps []StepResult `json:"steps"`
+	// Rollback：Workflow 失败后执行的补偿动作快照，按执行顺序（逆序遍历目标 step 列表）。
+	// 未触发 rollback 时该字段为 nil。
+	Rollback []StepResult `json:"rollback,omitempty"`
 	// StartedAt / FinishedAt：Run 的墙钟起止（Runner 填充）。
 	StartedAt  time.Time `json:"started_at,omitempty"`
 	FinishedAt time.Time `json:"finished_at,omitempty"`

@@ -85,6 +85,11 @@ const (
 	// 若 backoff 期间 ctx 被取消，随后不会再触发 PhaseError；
 	// runStep 会以最后一次错误直接返回。
 	PhaseRetry StepPhase = "retry"
+	// PhaseRollback：Workflow 主流程失败后，对某个已成功 step 执行的补偿动作。
+	//   - Result 是补偿动作的独立 StepResult（StepID 与被回滚的 step 一致，前缀 "compensate:" 由上层展示自行处理）
+	//   - Result.OK=true 表示补偿成功；false 表示补偿也失败（不再嵌套 rollback）
+	//   - Skipped=true 表示该 step 没有声明 Compensate，静默跳过
+	PhaseRollback StepPhase = "rollback"
 )
 
 // StepEvent 是单个 Step 生命周期事件。
@@ -143,6 +148,7 @@ type RunSnapshot struct {
 	OK         bool
 	Error      string
 	Steps      []StepResult
+	Rollback   []StepResult
 }
 
 // RunnerOptions 构造 Runner 的可选参数。
@@ -217,6 +223,14 @@ func (r *Runner) Run(ctx context.Context, w *Workflow, opts RunOptions) (*Result
 			res.FinishedAt = r.now()
 		}
 		if res.Duration == 0 {
+			res.Duration = res.FinishedAt.Sub(res.StartedAt)
+		}
+		// 主流程失败 + OnFailure.Rollback 声明存在 → 触发补偿。
+		// rollback 内部错误不重置 res.OK / runErr —— 让上层知道 Workflow 仍是失败态。
+		if runErr != nil && w.OnFailure != nil && len(w.OnFailure.Rollback) > 0 {
+			res.Rollback = r.runRollback(ctx, w, res.Steps, scope, opts)
+			// rollback 本身也可能改变 FinishedAt / Duration：更新一次。
+			res.FinishedAt = r.now()
 			res.Duration = res.FinishedAt.Sub(res.StartedAt)
 		}
 		r.saveHistory(ctx, res, opts, runErr)
@@ -304,6 +318,7 @@ func (r *Runner) saveHistory(ctx context.Context, res *Result, opts RunOptions, 
 		Duration:   res.Duration,
 		OK:         res.OK,
 		Steps:      append([]StepResult(nil), res.Steps...),
+		Rollback:   append([]StepResult(nil), res.Rollback...),
 	}
 	if runErr != nil {
 		snap.Error = runErr.Error()
@@ -480,6 +495,117 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+// -----------------------------------------------------------------------------
+// Rollback
+// -----------------------------------------------------------------------------
+//
+// 触发条件：主流程失败（runErr != nil）+ Workflow.OnFailure.Rollback 非空。
+//
+// 语义：
+//   - 逆序遍历 OnFailure.Rollback 中的 id 列表
+//   - 只对"已经成功执行过"的 step 调用其 Compensate；Skipped / 失败 / 从未执行的都跳过
+//   - Compensate 缺失：静默跳过（返回一条 Skipped=true 的记录，便于观测）
+//   - Compensate 内部错误：记录到 Rollback 快照并继续下一个；不嵌套 rollback、不 retry
+//
+// scope 沿用主流程末态：允许 compensate 引用 ${steps.<id>.out.*}。
+func (r *Runner) runRollback(ctx context.Context, w *Workflow, executed []StepResult, scope Scope, opts RunOptions) []StepResult {
+	// 建立 step id → *Step 与 id → 主流程执行是否成功的映射
+	stepByID := make(map[string]Step, len(w.Steps))
+	for _, s := range w.Steps {
+		stepByID[s.ID] = s
+	}
+	successOf := make(map[string]bool, len(executed))
+	for _, sr := range executed {
+		if sr.OK && !sr.Skipped {
+			successOf[sr.StepID] = true
+		}
+	}
+
+	ids := w.OnFailure.Rollback
+	out := make([]StepResult, 0, len(ids))
+	// 逆序遍历
+	for i := len(ids) - 1; i >= 0; i-- {
+		id := ids[i]
+		if !successOf[id] {
+			// 从未成功 → 无副作用 → 无需回滚，且不记录一行冗余
+			continue
+		}
+		step := stepByID[id]
+		if step.Compensate == nil {
+			// 允许"选择性补偿"：id 出现在 rollback 列表但没写 compensate 时，
+			// 记一行 Skipped 便于 UI 观测，但不视为失败。
+			skip := StepResult{StepID: id, OK: true, Skipped: true, Attempts: 0}
+			out = append(out, skip)
+			emit(opts.OnStep, StepEvent{
+				Phase: PhaseRollback, Step: step, Result: &out[len(out)-1],
+			})
+			continue
+		}
+		sr := r.runCompensate(ctx, step, scope, opts)
+		out = append(out, sr)
+		var err error
+		if !sr.OK && !sr.Skipped {
+			err = errors.New(sr.ErrorMsg)
+		}
+		emit(opts.OnStep, StepEvent{
+			Phase: PhaseRollback, Step: step, Result: &out[len(out)-1], Err: err,
+		})
+	}
+	return out
+}
+
+// runCompensate 执行单个 Compensate 动作。
+//
+// 与 runStep 保持相似结构，但**永远不重试、不做 When 判断**。
+// Params 插值使用与主流程相同的 scope，允许引用 ${steps.<id>.out.*}。
+func (r *Runner) runCompensate(ctx context.Context, step Step, scope Scope, opts RunOptions) StepResult {
+	comp := step.Compensate
+	sr := StepResult{
+		StepID:  step.ID,
+		Command: comp.Command,
+		Recipe:  comp.Recipe,
+	}
+	start := r.now()
+	defer func() { sr.Duration = r.now().Sub(start) }()
+
+	interpolated, err := Interpolate(comp.Params, scope)
+	if err != nil {
+		sr.ErrorCode = "INTERPOLATE"
+		sr.ErrorMsg = err.Error()
+		return sr
+	}
+	params, err := asStringMap(interpolated)
+	if err != nil {
+		sr.ErrorCode = "INTERPOLATE"
+		sr.ErrorMsg = err.Error()
+		return sr
+	}
+	execOpts := CommandRunOptions{
+		TargetID: opts.TargetID,
+		Timeout:  comp.Timeout,
+		Caller:   opts.Caller,
+	}
+	// 借用 execOnce 的分派逻辑：把 comp 临时"套壳"为一个 Step。
+	fake := Step{Command: comp.Command, Recipe: comp.Recipe}
+	out, err := r.execOnce(ctx, fake, params, execOpts)
+	if err != nil {
+		if isNonRetryableExecErr(err) {
+			sr.ErrorCode = execErrCode(err)
+		} else {
+			sr.ErrorCode = errorCode(err)
+		}
+		sr.ErrorMsg = err.Error()
+		return sr
+	}
+	sr.OK = true
+	sr.Attempts = 1
+	if out != nil {
+		sr.AuditID = out.AuditID
+		sr.Data = out.Data
+	}
+	return sr
 }
 
 // -----------------------------------------------------------------------------

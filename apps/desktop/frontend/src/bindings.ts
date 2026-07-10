@@ -97,7 +97,7 @@ export type WorkflowRunInput = {
 };
 
 export type WorkflowStepEvent = {
-  phase: "start" | "finish" | "error" | "skip" | "retry";
+  phase: "start" | "finish" | "error" | "skip" | "retry" | "rollback";
   index: number;
   step_id: string;
   kind: "cmd" | "recipe";
@@ -110,6 +110,8 @@ export type WorkflowStepEvent = {
   attempt?: number;
   max_attempts?: number;
   next_backoff_ms?: number;
+  // rollback-only
+  rollback_ok?: boolean;
   error_code?: string;
   error_msg?: string;
 };
@@ -138,6 +140,7 @@ export type WorkflowRunRow = {
   step_count: number;
   skipped_count?: number;
   retried_count?: number;
+  rollback_count?: number;
   failed_step?: string;
 };
 
@@ -158,6 +161,7 @@ export type WorkflowRunDetail = {
   row: WorkflowRunRow;
   inputs?: Record<string, unknown>;
   steps?: WorkflowRunStepView[];
+  rollback?: WorkflowRunStepView[];
 };
 
 export type WorkflowHistoryListInput = {

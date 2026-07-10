@@ -166,6 +166,32 @@ func printHistoryDetail(r *history.Record) {
 			attempts, errTag,
 		)
 	}
+	if len(r.Rollback) > 0 {
+		fmt.Println("rollback:")
+		for _, s := range r.Rollback {
+			status := "ok"
+			if s.Skipped {
+				status = "skip" // no compensate
+			} else if !s.OK {
+				status = "FAIL"
+			}
+			ref := s.Command
+			kind := "cmd"
+			if ref == "" && s.Recipe != "" {
+				ref = s.Recipe
+				kind = "recipe"
+			}
+			errTag := ""
+			if s.ErrorCode != "" {
+				errTag = fmt.Sprintf(" [%s] %s", s.ErrorCode, s.ErrorMsg)
+			}
+			fmt.Printf("  - %-4s %s (%s:%s) %s%s\n",
+				status, s.StepID, kind, ref,
+				s.Duration.Round(time.Millisecond),
+				errTag,
+			)
+		}
+	}
 }
 
 func shortRunID(id string) string {

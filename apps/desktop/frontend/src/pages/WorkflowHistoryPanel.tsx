@@ -126,6 +126,7 @@ export default function WorkflowHistoryPanel({ refreshTick }: Props) {
                       {r.step_count}
                       {r.skipped_count ? ` · ⤼${r.skipped_count}` : ""}
                       {r.retried_count ? ` · ↻${r.retried_count}` : ""}
+                      {r.rollback_count ? ` · ↩${r.rollback_count}` : ""}
                     </td>
                     <td className="wf-history-id">{r.run_id.slice(0, 12)}</td>
                   </tr>
@@ -220,6 +221,48 @@ export default function WorkflowHistoryPanel({ refreshTick }: Props) {
                       })}
                     </tbody>
                   </table>
+                  {(detail.rollback ?? []).length > 0 && (
+                    <>
+                      <h4 style={{ marginTop: 12 }}>Rollback</h4>
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th>step_id</th>
+                            <th>ref</th>
+                            <th>duration</th>
+                            <th>status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(detail.rollback ?? []).map((s, i) => {
+                            const ref = s.command || s.recipe || "";
+                            let status: string;
+                            if (s.skipped) status = "no compensate";
+                            else if (s.ok) status = "ok";
+                            else status = "FAIL";
+                            return (
+                              <tr key={i}>
+                                <td>{i + 1}</td>
+                                <td>{s.step_id}</td>
+                                <td>
+                                  {ref
+                                    ? `${s.command ? "cmd" : "recipe"}:${ref}`
+                                    : ""}
+                                </td>
+                                <td>{formatDur(s.duration_ms)}</td>
+                                <td>
+                                  {status}
+                                  {s.error_code && ` [${s.error_code}]`}
+                                  {s.error_msg && `: ${s.error_msg}`}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </>
+                  )}
                 </>
               )}
             </div>

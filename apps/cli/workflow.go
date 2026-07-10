@@ -403,6 +403,28 @@ func (p *progressPrinter) onStep(ev workflow.StepEvent) {
 			p.c(ansiYellow), p.c(ansiReset), when,
 		)
 
+	case workflow.PhaseRollback:
+		// rollback 单独一行；不复用 PhaseStart 的 "▶ ... " lead。
+		icon := "↩"
+		col := ansiYellow
+		status := ""
+		switch {
+		case ev.Result != nil && ev.Result.Skipped:
+			status = " (no compensate)"
+		case ev.Result != nil && !ev.Result.OK:
+			icon = "✗"
+			col = ansiRed
+			if ev.Err != nil {
+				status = ": " + trunc(ev.Err.Error(), 80)
+			}
+		default:
+			status = fmt.Sprintf(" %s", formatDur(ev.Result.Duration))
+		}
+		fmt.Fprintf(p.w, "%s%s%s rollback %s%s%s%s\n",
+			p.c(col), icon, p.c(ansiReset),
+			p.c(ansiBold), ev.Step.ID, p.c(ansiReset), status,
+		)
+
 	case workflow.PhaseError:
 		code := ""
 		msg := ""
@@ -469,12 +491,30 @@ func printWorkflowSummary(w io.Writer, res *workflow.Result, color bool) {
 			retried++
 		}
 	}
+	rolled := 0
+	rollFailed := 0
+	for _, s := range res.Rollback {
+		if s.Skipped {
+			continue
+		}
+		rolled++
+		if !s.OK {
+			rollFailed++
+		}
+	}
 	tail := ""
 	if skipped > 0 {
 		tail += fmt.Sprintf(" skipped=%d", skipped)
 	}
 	if retried > 0 {
 		tail += fmt.Sprintf(" retried=%d", retried)
+	}
+	if rolled > 0 {
+		if rollFailed > 0 {
+			tail += fmt.Sprintf(" rolled_back=%d rollback_failed=%d", rolled, rollFailed)
+		} else {
+			tail += fmt.Sprintf(" rolled_back=%d", rolled)
+		}
 	}
 	fmt.Fprintf(w, "\nworkflow=%s status=%s duration=%s%s\n",
 		res.WorkflowID, tag, res.Duration.Round(time.Millisecond), tail)

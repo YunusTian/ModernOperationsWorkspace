@@ -39,6 +39,7 @@ type Record struct {
 	OK         bool                   `json:"ok"`
 	Error      string                 `json:"error,omitempty"`
 	Steps      []workflow.StepResult  `json:"steps,omitempty"`
+	Rollback   []workflow.StepResult  `json:"rollback,omitempty"`
 }
 
 // ListOptions 控制 List 的分页 / 过滤行为。
@@ -93,6 +94,7 @@ func SnapshotToRecord(s *workflow.RunSnapshot) *Record {
 		OK:         s.OK,
 		Error:      s.Error,
 		Steps:      s.Steps,
+		Rollback:   s.Rollback,
 	}
 }
 

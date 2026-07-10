@@ -85,6 +85,46 @@ type Step struct {
 	//   - 仅对执行阶段错误重试；WHEN_EVAL / INTERPOLATE / NO_EXECUTOR / INVALID_STEP 不重试
 	//   - ctx 取消 / 超时会打断 backoff 睡眠，立即返回最后一次执行错误
 	Retry *RetryPolicy
+
+	// Compensate 是可选的补偿动作，用于 Workflow 顶层 on_failure.rollback 触发时"撤销自己"。
+	//
+	// 语义（见 docs/workflow.md §7.4.4）：
+	//   - 只在 Workflow 主流程失败、且该 step 已经"执行成功"过时才会被调用
+	//   - Skipped / 失败 / 未执行的 step 都不会走 compensate
+	//   - Compensate 内部 command / recipe 二选一，与 Step 声明结构相同
+	//   - Compensate 内部失败不再触发嵌套 rollback；rollback 中的 step 也不 retry
+	Compensate *CompensateAction
+}
+
+// CompensateAction 描述一次补偿动作（rollback 时执行）。
+//
+// 独立结构而非复用 Step，是为了明确"这不是一个可编排的 step"——
+// 它没有 ID / When / Retry / Compensate，避免递归纠缠。
+type CompensateAction struct {
+	// Command / Recipe 二选一，与 Step 声明保持一致。
+	Command string
+	Recipe  string
+	// Params 允许 ${inputs.*} / ${steps.<id>.out.*} 插值，
+	// 但只有原 step 已成功时才会执行，因此引用自身 out 是安全的。
+	Params  map[string]any
+	Timeout time.Duration
+}
+
+// Validate 校验 CompensateAction 静态字段。nil 视为未声明。
+func (c *CompensateAction) Validate() error {
+	if c == nil {
+		return nil
+	}
+	switch {
+	case c.Command == "" && c.Recipe == "":
+		return errors.New("compensate: command or recipe required")
+	case c.Command != "" && c.Recipe != "":
+		return errors.New("compensate: command and recipe are mutually exclusive")
+	}
+	if c.Timeout < 0 {
+		return errors.New("compensate: timeout must be >= 0")
+	}
+	return nil
 }
 
 // RetryPolicy 描述一个 Step 的重试策略。
@@ -179,6 +219,19 @@ type Workflow struct {
 
 	// Steps：按声明顺序执行；ID 唯一。
 	Steps []Step
+
+	// OnFailure：Workflow 主流程失败后的补偿声明。nil 表示不做任何补偿。
+	OnFailure *FailurePolicy
+}
+
+// FailurePolicy 描述 Workflow 失败后要做的事。v0.3 第四批仅支持 rollback。
+type FailurePolicy struct {
+	// Rollback 是按声明顺序列出的 step id 列表；Runner 会**逆序**遍历，
+	// 只对该列表中"已经成功执行过"的 step 调用 Compensate。
+	//
+	// 允许列表为空 —— 语义上等价于没有 OnFailure。
+	// 允许列表包含没有声明 Compensate 的 step id —— 静默跳过。
+	Rollback []string
 }
 
 // Validate 校验 Workflow 的静态字段。
@@ -227,6 +280,34 @@ func (w *Workflow) Validate() error {
 		if err := s.Retry.Validate(); err != nil {
 			return fmt.Errorf("step %q: %w", s.ID, err)
 		}
+		if err := s.Compensate.Validate(); err != nil {
+			return fmt.Errorf("step %q: %w", s.ID, err)
+		}
+	}
+	if err := validateOnFailure(w.OnFailure, seen); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateOnFailure 校验 rollback 中的 step id 都真实存在。
+// 允许列表为空、允许引用没有 Compensate 的 step（Runner 侧静默跳过）。
+func validateOnFailure(p *FailurePolicy, stepIDs map[string]struct{}) error {
+	if p == nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(p.Rollback))
+	for i, id := range p.Rollback {
+		if id == "" {
+			return fmt.Errorf("on_failure.rollback[%d]: empty id", i)
+		}
+		if _, ok := stepIDs[id]; !ok {
+			return fmt.Errorf("on_failure.rollback[%d]: unknown step id %q", i, id)
+		}
+		if _, dup := seen[id]; dup {
+			return fmt.Errorf("on_failure.rollback: duplicate id %q", id)
+		}
+		seen[id] = struct{}{}
 	}
 	return nil
 }

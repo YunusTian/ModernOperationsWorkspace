@@ -29,11 +29,17 @@ type yamlDoc struct {
 }
 
 type yamlWorkflow struct {
-	ID          string       `yaml:"id"`
-	Name        string       `yaml:"name"`
-	Description string       `yaml:"description"`
-	Inputs      []yamlInput  `yaml:"inputs"`
-	Steps       []yamlStep   `yaml:"steps"`
+	ID          string          `yaml:"id"`
+	Name        string          `yaml:"name"`
+	Description string          `yaml:"description"`
+	Inputs      []yamlInput     `yaml:"inputs"`
+	Steps       []yamlStep      `yaml:"steps"`
+	OnFailure   *yamlOnFailure  `yaml:"on_failure"`
+}
+
+// yamlOnFailure 是 workflow.on_failure 的 YAML 结构。
+type yamlOnFailure struct {
+	Rollback []string `yaml:"rollback"`
 }
 
 type yamlInput struct {
@@ -45,13 +51,22 @@ type yamlInput struct {
 }
 
 type yamlStep struct {
-	ID      string         `yaml:"id"`
+	ID         string          `yaml:"id"`
+	Command    string          `yaml:"command"`
+	Recipe     string          `yaml:"recipe"`
+	Params     map[string]any  `yaml:"params"`
+	Timeout    string          `yaml:"timeout"`
+	When       string          `yaml:"when"`
+	Retry      *yamlRetry      `yaml:"retry"`
+	Compensate *yamlCompensate `yaml:"compensate"`
+}
+
+// yamlCompensate 是 step.compensate 的 YAML 结构。
+type yamlCompensate struct {
 	Command string         `yaml:"command"`
 	Recipe  string         `yaml:"recipe"`
 	Params  map[string]any `yaml:"params"`
 	Timeout string         `yaml:"timeout"`
-	When    string         `yaml:"when"`
-	Retry   *yamlRetry     `yaml:"retry"`
 }
 
 // yamlRetry 是 retry: { ... } 的原始形态。所有字段均可选。
@@ -171,8 +186,26 @@ func (y *yamlWorkflow) toWorkflow() (*Workflow, error) {
 				}
 				step.Retry = rp
 			}
+			if ys.Compensate != nil {
+				comp := &CompensateAction{
+					Command: ys.Compensate.Command,
+					Recipe:  ys.Compensate.Recipe,
+					Params:  ys.Compensate.Params,
+				}
+				if ys.Compensate.Timeout != "" {
+					d, err := time.ParseDuration(ys.Compensate.Timeout)
+					if err != nil {
+						return nil, fmt.Errorf("workflow: step[%d] compensate.timeout: %w", i, err)
+					}
+					comp.Timeout = d
+				}
+				step.Compensate = comp
+			}
 			w.Steps = append(w.Steps, step)
 		}
+	}
+	if y.OnFailure != nil {
+		w.OnFailure = &FailurePolicy{Rollback: append([]string(nil), y.OnFailure.Rollback...)}
 	}
 	return w, nil
 }

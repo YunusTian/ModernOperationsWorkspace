@@ -38,7 +38,7 @@
   - 🔨 **第一批（已合入）**：`when: <expr>` 条件分支 — 详见 [workflow.md §7.4.1](./workflow.md#741-when-条件分支v03-第一批)
   - 🔨 **第二批（已合入）**：`retry: { max, backoff, max_backoff, exponential }` 单 step 重试 — 详见 [workflow.md §7.4.2](./workflow.md#742-retry-单-step-重试v03-第二批)
   - 🔨 **第三批（已合入）**：执行历史持久化（JSONL 默认后端，`Store` 抽象保留 SQLite 切换空间）— 详见 [workflow.md §7.4.3](./workflow.md#743-执行历史持久化v03-第三批)
-  - ⏳ 第四批：`on_failure` / `rollback` 声明式回滚
+  - 🔨 **第四批（已合入）**：`on_failure` / `rollback` 声明式补偿 — 详见 [workflow.md §7.4.4](./workflow.md#744-on_failure--rollback-声明式回滚v03-第四批)
   - ⏳ 第五批：`parallel: true` 组内并行（最后做——取消传播、资源竞争、事件顺序、审计一致性、测试复杂度显著增加）
   - v0.4+：单 step 级 `target` 覆盖 / `notify:` 通知 / Workflow 版本化
 

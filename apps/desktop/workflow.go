@@ -172,6 +172,16 @@ func emitStepEvent(ctx context.Context, sess string, ev workflow.StepEvent) {
 		kind = "recipe"
 		ref = ev.Step.Recipe
 	}
+	// PhaseRollback 场景，ref 应指向 compensate 的 command / recipe
+	if ev.Phase == workflow.PhaseRollback && ev.Step.Compensate != nil {
+		if ev.Step.Compensate.Command != "" {
+			kind = "cmd"
+			ref = ev.Step.Compensate.Command
+		} else if ev.Step.Compensate.Recipe != "" {
+			kind = "recipe"
+			ref = ev.Step.Compensate.Recipe
+		}
+	}
 	payload := map[string]any{
 		"phase":   string(ev.Phase),
 		"index":   ev.Index,
@@ -203,6 +213,9 @@ func emitStepEvent(ctx context.Context, sess string, ev workflow.StepEvent) {
 		}
 		if ev.Result.ErrorMsg != "" && ev.Phase != workflow.PhaseRetry {
 			payload["error_msg"] = ev.Result.ErrorMsg
+		}
+		if ev.Phase == workflow.PhaseRollback {
+			payload["rollback_ok"] = ev.Result.OK
 		}
 	}
 	wailsruntime.EventsEmit(ctx, "workflow:"+sess+":step", payload)
@@ -319,26 +332,28 @@ func (a *desktopRecipeExecutor) RunRecipe(
 
 // WorkflowRunRow 是历史列表页每一行；不含 Steps / Inputs 明细。
 type WorkflowRunRow struct {
-	RunID       string `json:"run_id"`
-	WorkflowID  string `json:"workflow_id"`
-	TargetID    string `json:"target_id,omitempty"`
-	Caller      string `json:"caller,omitempty"`
-	OK          bool   `json:"ok"`
-	Error       string `json:"error,omitempty"`
-	StartedAt   string `json:"started_at"`  // RFC3339
-	FinishedAt  string `json:"finished_at"` // RFC3339
-	DurationMs  int64  `json:"duration_ms"`
-	StepCount   int    `json:"step_count"`
-	SkippedCnt  int    `json:"skipped_count,omitempty"`
-	RetriedCnt  int    `json:"retried_count,omitempty"`
-	FailedStep  string `json:"failed_step,omitempty"`
+	RunID        string `json:"run_id"`
+	WorkflowID   string `json:"workflow_id"`
+	TargetID     string `json:"target_id,omitempty"`
+	Caller       string `json:"caller,omitempty"`
+	OK           bool   `json:"ok"`
+	Error        string `json:"error,omitempty"`
+	StartedAt    string `json:"started_at"`  // RFC3339
+	FinishedAt   string `json:"finished_at"` // RFC3339
+	DurationMs   int64  `json:"duration_ms"`
+	StepCount    int    `json:"step_count"`
+	SkippedCnt   int    `json:"skipped_count,omitempty"`
+	RetriedCnt   int    `json:"retried_count,omitempty"`
+	RollbackCnt  int    `json:"rollback_count,omitempty"`
+	FailedStep   string `json:"failed_step,omitempty"`
 }
 
 // WorkflowRunDetail 是详情页需要的完整快照。
 type WorkflowRunDetail struct {
-	Row    WorkflowRunRow         `json:"row"`
-	Inputs map[string]any         `json:"inputs,omitempty"`
-	Steps  []WorkflowRunStepView  `json:"steps,omitempty"`
+	Row      WorkflowRunRow        `json:"row"`
+	Inputs   map[string]any        `json:"inputs,omitempty"`
+	Steps    []WorkflowRunStepView `json:"steps,omitempty"`
+	Rollback []WorkflowRunStepView `json:"rollback,omitempty"`
 }
 
 // WorkflowRunStepView 与 core/workflow.StepResult 对齐；避免前端解引用 StepResult 里的
@@ -425,6 +440,20 @@ func (a *App) GetWorkflowRun(runID string) (*WorkflowRunDetail, error) {
 			ErrorMsg:   s.ErrorMsg,
 		})
 	}
+	for _, s := range rec.Rollback {
+		detail.Rollback = append(detail.Rollback, WorkflowRunStepView{
+			StepID:     s.StepID,
+			Command:    s.Command,
+			Recipe:     s.Recipe,
+			OK:         s.OK,
+			Skipped:    s.Skipped,
+			AuditID:    s.AuditID,
+			Attempts:   s.Attempts,
+			DurationMs: s.Duration.Milliseconds(),
+			ErrorCode:  s.ErrorCode,
+			ErrorMsg:   s.ErrorMsg,
+		})
+	}
 	return detail, nil
 }
 
@@ -450,6 +479,11 @@ func toRunRow(r history.Record) WorkflowRunRow {
 		}
 		if !s.OK && !s.Skipped && row.FailedStep == "" {
 			row.FailedStep = s.StepID
+		}
+	}
+	for _, s := range r.Rollback {
+		if !s.Skipped {
+			row.RollbackCnt++
 		}
 	}
 	return row

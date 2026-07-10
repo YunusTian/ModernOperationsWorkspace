@@ -116,6 +116,7 @@ workflow:
 | `timeout` | duration | 例：`5s` / `1m30s`；`0` 或缺省走底层默认 |
 | `when` | string | 可选；expr-lang 表达式，求值为 `false` 时跳过（`Skipped`），求值失败中断 Workflow。**v0.3 第一批已合入** |
 | `retry` | object | 可选；`{ max, backoff, max_backoff, exponential }`，见 §7.4.2。**v0.3 第二批已合入** |
+| `compensate` | object | 可选；`{ command|recipe, params, timeout }`，配合顶层 `on_failure.rollback` 触发。**v0.3 第四批已合入** |
 
 ### 7.4 变量插值
 
@@ -250,6 +251,71 @@ mow workflow history show run-<hex> --json
 | `App.GetWorkflowRun(run_id)` | 详情抽屉 |
 
 
+#### 7.4.4 `on_failure` / `rollback` 声明式回滚（v0.3 第四批）
+
+```yaml
+workflow:
+  id: deploy.app
+  steps:
+    - id: upload
+      command: ssh.upload
+      params: { file: "${inputs.pkg}", dest: "/tmp/pkg" }
+      compensate:
+        command: ssh.exec
+        params: { cmd: "rm -f /tmp/pkg" }
+        timeout: 5s
+
+    - id: deploy
+      command: ssh.exec
+      params: { cmd: "systemctl start myapp" }
+      compensate:
+        command: ssh.exec
+        params: { cmd: "systemctl stop myapp && systemctl start myapp.old" }
+
+    - id: health
+      command: ssh.exec
+      params: { cmd: "curl -sf http://localhost/healthz" }
+      retry: { max: 3, backoff: 500ms }
+
+  on_failure:
+    rollback: [upload, deploy]
+```
+
+**触发条件**（严格）：
+
+- Workflow 主流程返回错误 **且** `on_failure.rollback` 非空
+- Runner **逆序遍历** rollback 列表；只对**执行成功过**的 step 调用其 `compensate`
+
+**语义边界**：
+
+| 场景 | 行为 |
+|---|---|
+| Workflow 全部成功 | ❌ 不触发；`Result.Rollback` 为空 |
+| Step 被 `when` 跳过 (`Skipped`) | ❌ 不回滚（副作用未成立） |
+| Step 执行失败（含 retry 用尽） | ❌ 不回滚该 step（未成功过） |
+| rollback 列表含**未声明** `compensate` 的 id | 静默跳过；`Result.Rollback` 记一行 `Skipped=true` |
+| `compensate` 执行失败 | ❌ **不嵌套 rollback**、❌ 不 retry；记入 `Result.Rollback` 后继续下一个 |
+| Workflow 最终状态 | 保持失败（`res.OK=false`）——rollback 只是补偿观测，不改变结论 |
+
+**Validate 规则**：
+
+- `on_failure.rollback[i]` 必须存在于 `steps` 中；未知 id 直接拒
+- `rollback` 列表内不能重复
+- `compensate.command` / `compensate.recipe` 二选一
+- 引用没有 `compensate` 的 step id 是**合法**的（允许"选择性补偿"）
+
+**观测**：
+
+- `Result.Rollback []StepResult` 保留全部补偿动作快照（按执行顺序，即声明的逆序）
+- `StepEvent.Phase = PhaseRollback` 每个 compensate 完成后触发一次；`Result.OK` 表示补偿是否成功；`Skipped=true` 表示无 compensate
+- CLI：`↩ rollback deploy 100ms` / `✗ rollback upload: rm failed` + summary `rolled_back=N`
+- Desktop：主日志区插入独立行（`↩` 图标 + 蓝色 `rollback` 徽标）；History 抽屉底部新增独立 Rollback 表
+- History：`Record.Rollback` 与 `Steps` 同源持久化，`show` 命令输出 `rollback:` 区块
+
+**为什么 rollback 内部错误不再嵌套 rollback**：
+
+补偿动作失败通常意味着"能自动做的都做过了"——继续嵌套只会让状态更混乱。当前策略是"记录、继续、通知用户手动介入"，为未来接入 `notify:` 通知渠道留了口子。
+
 ### 7.5 尚未实现（v0.3+）
 
 按 **分批推进** 顺序落地，避免一次交付太大：
@@ -259,7 +325,7 @@ mow workflow history show run-<hex> --json
 | `when: <expr>` | 🔨 **v0.3 第一批（已合入）** | 条件分支；表达式复用 expr-lang，无 `${}` 包裹 |
 | `retry: { max, backoff, max_backoff, exponential }` | 🔨 **v0.3 第二批（已合入）** | 单 step 重试；fixed / exponential，无 jitter |
 | 执行历史持久化（JSONL） | 🔨 **v0.3 第三批（已合入）** | `<data_dir>/workflow-runs.jsonl`；SQLite 后端后续替换 |
-| `on_failure` / `rollback` | ⏳ v0.3 第四批 | 手动声明式回滚；`rollback` 是 `on_failure` 的语法糖 |
+| `on_failure` / `rollback` | 🔨 **v0.3 第四批（已合入）** | 手动声明式补偿；逆序遍历只回滚成功过的 step，不嵌套、不 retry |
 | `parallel: true` | ⏳ v0.3 第五批 | **最后做**，涉及取消传播、资源竞争、事件顺序、审计一致性、测试复杂度显著上升 |
 | `notify: { channel, target }` | v0.4+ | 邮件 / IM / Webhook 通知 |
 | 每 Step 独立 `target` | v0.4+ | v0.3 仍全 Workflow 共用一个 target |
