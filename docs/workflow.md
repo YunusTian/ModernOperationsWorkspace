@@ -1,7 +1,7 @@
 # RFC: Workflow Engine
 
-- 状态：**Implemented (MVP)**
-- 版本：v0.2
+- 状态：**Implemented (v0.3)** — v0.2 MVP 顺序执行 / 变量插值；v0.3 增补 `when` / `retry` / 执行历史（JSONL）/ `on_failure` + `rollback` / `parallel: true`
+- 版本：v0.3
 - 更新日期：2026-07-10
 - 相关章节：Architecture.md § 4.5
 
@@ -28,7 +28,7 @@ Workflow = **多个 Recipe / Command 的编排**。
 - 通知（邮件 / IM / Webhook）
 - 变量与上下文传递
 
-> v0.2 已交付 **顺序执行 + 变量传递** 两项，其余能力见 §7.5 与 [docs/roadmap.md](./roadmap.md)。
+> v0.2 交付 **顺序执行 + 变量传递**；v0.3 增补 `when` / `retry` / 执行历史（JSONL）/ `on_failure` + `rollback` / `parallel: true`（见 §7.4.1 ~ §7.4.5）。剩余能力（`notify` / 单 step `target` / Workflow 版本化）见 §7.5 与 [docs/roadmap.md](./roadmap.md)。
 
 ## 4. Workflow 声明草案（YAML）
 
@@ -60,7 +60,7 @@ workflow:
     - notify: { channel: "webhook", target: "${notify.url}" }
 ```
 
-## 5. 技术选型（v0.2 落地）
+## 5. 技术选型（v0.2 落地 + v0.3 增补）
 
 | 项 | 选型 | 说明 |
 | --- | --- | --- |
@@ -68,8 +68,8 @@ workflow:
 | DSL 解析 | `gopkg.in/yaml.v3`（严格模式 `KnownFields(true)`） | 未知字段直接报错，避免拼写错误静默生效 |
 | 变量表达式 | `github.com/expr-lang/expr` | 支持 `${var}` 与条件、算术表达式 |
 | 执行器 | `workflow.Runner` + `CommandExecutor` / `RecipeExecutor` 抽象 | CLI / Desktop 各自注入 Adapter |
-| 状态持久化 | 暂无（v0.3+ 引入 SQLite） | 目前仅内存 Result |
-| 通知 | 暂无（v0.3+ 引入 Provider 抽象） | |
+| 状态持久化 | **JSONL**（`<data_dir>/workflow-runs.jsonl`）— v0.3 第三批已合入；`Store` 抽象保留 SQLite 切换空间 | 详见 §7.4.3 |
+| 通知 | 暂无（v0.4+ 引入 Provider 抽象） | |
 
 ## 6. 待讨论 / Roadmap
 
@@ -81,9 +81,9 @@ workflow:
 
 ---
 
-## 7. MVP 已实现字段（v0.2）
+## 7. 已实现字段（v0.2 MVP + v0.3 五批增强）
 
-以下字段已在 `core/workflow` 落地并被 CLI (`mow workflow run`) / Desktop (`WorkflowPage`) 消费。
+以下字段已在 `core/workflow` 落地并被 CLI (`mow workflow run`) / Desktop (`WorkflowPage`) 消费。**v0.2** 交付 §7.1 ~ §7.3 顶层结构 + §7.4 变量插值；**v0.3** 增补 §7.4.1 ~ §7.4.5。
 
 ### 7.1 顶层 `workflow`
 
@@ -391,20 +391,18 @@ workflow:
 - 每 step 独立 `target` 覆盖
 - `on_failure.strategy: continue`（继续其它组）—— 当前只有 fail-fast
 
-### 7.5 尚未实现（v0.3+）
+### 7.5 尚未实现（v0.4+）
 
-按 **分批推进** 顺序落地，避免一次交付太大：
+**v0.3 已合入的五批增强**（`when` / `retry` / 执行历史 JSONL / `on_failure`+`rollback` / `parallel: true`）请见上面 §7.4.1 ~ §7.4.5。以下是**未纳入 v0.3** 的能力：
 
 | 字段 / 特性 | 状态 | 说明 |
 | --- | --- | --- |
-| `when: <expr>` | 🔨 **v0.3 第一批（已合入）** | 条件分支；表达式复用 expr-lang，无 `${}` 包裹 |
-| `retry: { max, backoff, max_backoff, exponential }` | 🔨 **v0.3 第二批（已合入）** | 单 step 重试；fixed / exponential，无 jitter |
-| 执行历史持久化（JSONL） | 🔨 **v0.3 第三批（已合入）** | `<data_dir>/workflow-runs.jsonl`；SQLite 后端后续替换 |
-| `on_failure` / `rollback` | 🔨 **v0.3 第四批（已合入）** | 手动声明式补偿；逆序遍历只回滚成功过的 step，不嵌套、不 retry |
-| `parallel: true` | 🔨 **v0.3 第五批（已合入）** | 连续 `parallel: true` 归为一组并发；fail-fast 取消同组兄弟；组内禁止 out 互引 |
 | `notify: { channel, target }` | v0.4+ | 邮件 / IM / Webhook 通知 |
 | 每 Step 独立 `target` | v0.4+ | v0.3 仍全 Workflow 共用一个 target |
 | Workflow 版本化 / 迁移 | v0.4+ | 与 Marketplace 联动 |
+| `parallel_limit: N` 并发上限 | v0.4+ | 当前是"整组同时并发" |
+| 嵌套并行组（组中组） | v0.4+ | 当前 `parallel: true` 只支持单层 |
+| JSONL 历史文件锁 / 轮转 / 损坏行恢复策略 | v0.3.1 | 见 [roadmap.md § v0.3.1](./roadmap.md#v031--稳定性补丁--计划中) |
 
 > 严格模式（YAML 未知字段报错）不受影响：每一批合入前，写了新字段的 workflow 都会直接被拒绝，避免拼写歧义。
 

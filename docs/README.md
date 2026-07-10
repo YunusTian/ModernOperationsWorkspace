@@ -16,7 +16,7 @@
 | [recipe.md](./recipe.md) | Recipe 引擎 | 4.4 |
 | [workflow.md](./workflow.md) | Workflow 引擎 | 4.5 |
 | [ssh-plugin.md](./ssh-plugin.md) | SSH 插件（v0.1） | 4.2 / 五 |
-| [docker-plugin.md](./docker-plugin.md) | Docker 插件（v0.3 第一阶段） | 4.2 / 五 |
+| [docker-plugin.md](./docker-plugin.md) | Docker 插件（v0.3 全阶段：lifecycle / logs / rm / pull / push / exec / 只读列表） | 4.2 / 五 |
 | [ai.md](./ai.md) | AI 架构 | 六 |
 | [ui.md](./ui.md) | UI 层设计 | UI Layer |
 | [permission.md](./permission.md) | 权限模型 | 九 |

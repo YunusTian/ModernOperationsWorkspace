@@ -1,9 +1,9 @@
 # RFC: Docker Plugin
 
-- 状态：Draft（v0.3 第一 + 第二阶段落地）
+- 状态：Implemented (v0.3 三阶段全部合入 · Dashboard 三阶段全部合入)
 - 版本：v0.3
 - 更新日期：2026-07-10
-- 相关章节：[roadmap.md § v0.3](./roadmap.md#v03--docker-plugin--docker-dashboard--下一版) · [plugin-system.md](./plugin-system.md) · [permission.md](./permission.md) · [ui.md](./ui.md)
+- 相关章节：[roadmap.md § v0.3](./roadmap.md#v03--docker-plugin--docker-dashboard--workflow-增强--rc发布前修正中) · [plugin-system.md](./plugin-system.md) · [permission.md](./permission.md) · [ui.md](./ui.md)
 
 ---
 
@@ -43,7 +43,7 @@ Docker Engine 有三种常见暴露方式，本 MVP 一次性覆盖：
 | `tcp://host:2375` | 远端裸 TCP | 不建议生产使用 |
 | `tcp://host:2376` + TLS | 生产远端 | 必须提供 `TLSCA` / `TLSCert` / `TLSKey` 三件套 |
 
-未实现：`ssh://` 隧道模式（v0.3 第二阶段）、`npipe://`（Windows）。
+未实现：`ssh://` 隧道模式（v0.4+）、`npipe://`（Windows 命名管道 · v0.3.1 补齐；当前 `DockerCredentials` 白名单已允许该 scheme，但插件运行时会返回"未实现"错误，UI 层已在保存前提示并禁用相关入口）、TLS `docker.exec` 的 raw-hijack（v0.3.1 补齐）。
 
 ## 5. 凭据模型
 

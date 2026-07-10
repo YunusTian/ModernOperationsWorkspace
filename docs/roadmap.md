@@ -26,7 +26,7 @@
   - E2E：`deploy-static-site.yaml` 通过 fake SSH server 走通
 - 边界：仅顺序执行 + 变量传递；`parallel` / `when` / `on_failure` / `retry` / `notify` / `rollback` 均**未实现**，见 [docs/workflow.md §7.5](./workflow.md#75-尚未实现-v03)。
 
-## v0.3 — Docker Plugin + Docker Dashboard 🎯 下一版
+## v0.3 — Docker Plugin + Docker Dashboard + Workflow 增强 🚧 RC（发布前修正中）
 
 - **Docker Plugin**（作为独立进程 gRPC 插件）
   - 🔨 **第一阶段（MVP，已合入）**：`docker.list` / `docker.inspect` / `docker.start` / `docker.stop` / `docker.restart` / `docker.logs`（流式）— 详见 [docker-plugin.md](./docker-plugin.md)
@@ -41,6 +41,18 @@
   - 🔨 **第四批（已合入）**：`on_failure` / `rollback` 声明式补偿 — 详见 [workflow.md §7.4.4](./workflow.md#744-on_failure--rollback-声明式回滚v03-第四批)
   - 🔨 **第五批（已合入）**：`parallel: true` 组内并行（fail-fast、事件序列化、组内禁止 out 互引）— 详见 [workflow.md §7.4.5](./workflow.md#745-parallel-true-组内并行v03-第五批)
   - v0.4+：单 step 级 `target` 覆盖 / `notify:` 通知 / Workflow 版本化 / `parallel_limit` / 嵌套并行组
+
+- **发布前修正**（gating v0.3.0 tag，详见 [v0.3 验收清单 §6](./v0.3-acceptance-checklist.md#6-发布前必修补丁gating-v030-tag)）
+  - Release CI 产物缺口：追加 `plugins/docker` 全平台产物、`body_path` 改为 `docs/v0.3-acceptance-checklist.md`、追加 SHA-256 校验文件
+  - 跨平台承诺：Windows `npipe://` 与 TLS `docker.exec` raw-hijack —— v0.3 采用"UI 禁用 + 文档提示"，实现推迟到 v0.3.1
+
+## v0.3.1 — 稳定性补丁 📋 计划中
+
+- `plugins/docker` 覆盖率补到 ≥ 70%：错误路径 / 连接取消 / TLS / registry auth 脱敏 / 并发流关闭
+- Workflow JSONL 历史：文件锁、轮转 / 保留策略、损坏行恢复策略
+- Windows `npipe://` 真实实现
+- Docker `exec` 支持 TLS raw-hijack
+- 真实 Docker Engine E2E（Linux CI 拉起 daemon）覆盖 list / lifecycle / logs / pull / exec / dangerous rm
 
 ## v0.4 — AI Plugin
 
