@@ -85,7 +85,7 @@ MOW 是一款面向**开发者与运维工程师**的跨平台运维工作台：
   - [command engine](./docs/command-engine.md) · [recipe](./docs/recipe.md) · [workflow](./docs/workflow.md)
   - [plugin system](./docs/plugin-system.md) · [ssh plugin](./docs/ssh-plugin.md) · [docker plugin](./docs/docker-plugin.md) · [ai plugin](./docs/ai-plugin.md) · [connection manager](./docs/connection-manager.md)
   - [permission](./docs/permission.md) · [observability](./docs/observability.md) · [ai](./docs/ai.md) · [ui](./docs/ui.md)
-  - [roadmap](./docs/roadmap.md) · [v0.1 acceptance](./docs/v0.1-acceptance-checklist.md) · [v0.2 acceptance](./docs/v0.2-acceptance-checklist.md) · [v0.3 acceptance](./docs/v0.3-acceptance-checklist.md)
+  - [roadmap](./docs/roadmap.md) · [v0.1 acceptance](./docs/v0.1-acceptance-checklist.md) · [v0.2 acceptance](./docs/v0.2-acceptance-checklist.md) · [v0.3 acceptance](./docs/v0.3-acceptance-checklist.md) · [v0.4 acceptance](./docs/v0.4-acceptance-checklist.md)
 
 ## 快速开始
 
@@ -179,7 +179,7 @@ go test -count=1 -run TestDockerE2E ./...
 | **v0.3** | Docker Plugin + Docker Dashboard + Workflow 增强（parallel / when / on_failure / retry / rollback / 执行历史 JSONL） | ✅ 已发布（v0.3.0） |
 | **v0.3.1** | 稳定性补丁：Docker 覆盖率 76.0% · JSONL 轮转+跨进程锁 · Windows npipe（go-winio） · TLS exec raw-hijack · Docker E2E 接入 CI | ✅ 已发布 |
 | **v0.4** | AI Plugin + Provider 抽象（含 MCP 支持）；v0.4.0 骨架：sdk 抽象 + plugins/ai mock provider + 三条 Command | 🚧 骨架已合入 |
-| **v0.5** | PVE / K8s / DB Plugin + Marketplace 雏形 | 📋 计划中 |
+| **v0.5** | 平台产品化：插件 manifest、安装升级、兼容性、配置 UI、诊断与 Marketplace 本地 catalog | 📋 计划中 |
 
 详见 [docs/roadmap.md](./docs/roadmap.md)。
 

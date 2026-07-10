@@ -45,6 +45,16 @@ type Engine struct {
 	middlewares []Middleware
 }
 
+// Spec 返回已注册 Command 的静态声明，供宿主侧目录、UI 和 AI 工具白名单使用。
+// 调用方仍必须通过 Run / RunStream 执行，不能据此绕过权限链路。
+func (e *Engine) Spec(pluginID, commandID string) (sdk.CommandSpec, error) {
+	h, err := e.pm.Command(pluginID, commandID)
+	if err != nil {
+		return sdk.CommandSpec{}, err
+	}
+	return h.Spec(), nil
+}
+
 // Options 是 Engine 构造参数。
 type Options struct {
 	// Manager 必填，Engine 从中查找 Plugin 与 Command。

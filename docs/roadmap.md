@@ -1,8 +1,8 @@
 # RFC: Roadmap
 
 - 状态：Living
-- 版本：v0.2
-- 更新日期：2026-07-10
+- 版本：v0.4
+- 更新日期：2026-07-11
 - 相关章节：Architecture.md § 十一
 
 ---
@@ -26,7 +26,7 @@
   - E2E：`deploy-static-site.yaml` 通过 fake SSH server 走通
 - 边界：仅顺序执行 + 变量传递；`parallel` / `when` / `on_failure` / `retry` / `notify` / `rollback` 均**未实现**，见 [docs/workflow.md §7.5](./workflow.md#75-尚未实现-v03)。
 
-## v0.3 — Docker Plugin + Docker Dashboard + Workflow 增强 🎯 RC 就绪，待发布
+## v0.3 — Docker Plugin + Docker Dashboard + Workflow 增强 ✅ 已发布
 
 - **Docker Plugin**（作为独立进程 gRPC 插件）
   - 🔨 **第一阶段（MVP，已合入）**：`docker.list` / `docker.inspect` / `docker.start` / `docker.stop` / `docker.restart` / `docker.logs`（流式）— 详见 [docker-plugin.md](./docker-plugin.md)
@@ -46,7 +46,7 @@
   - ✅ Release CI 产物缺口：追加 `plugins/docker` 全平台产物、`body_path` 按 tag 动态解析、追加 `.sha256` + `SHA256SUMS`
   - ✅ 跨平台承诺：Windows `npipe://` 与 TLS `docker.exec` 采用"应用层禁用 + 稳定错误码 + UI 提前拦截"三重护栏；真实实现推迟到 v0.3.1
 
-## v0.3.1 — 稳定性补丁 🚧 进行中
+## v0.3.1 — 稳定性补丁 ✅ 已发布
 
 已完成：
 
@@ -63,7 +63,9 @@
 
 **v0.3.1 全部完成 —— 可以打 tag 发布。**
 
-## v0.4 — AI Plugin 🚧 骨架已合入
+## v0.4 — AI 可用闭环 🚧 进行中
+
+正式发布标准以 [v0.4 验收清单](./v0.4-acceptance-checklist.md) 为准：一个真实 OpenAI-compatible Provider、宿主侧只读 tool-use、CLI 与 Desktop 用户入口，以及安全和跨平台验收。仅有接口与 mock 不视为 v0.4 完成。
 
 **v0.4.0 骨架**（本次交付）：
 
@@ -76,11 +78,11 @@
 - ✅ [docs/ai-plugin.md](./ai-plugin.md)：v0.4 设计文档
 - ✅ [go.work](../go.work) 追加 `plugins/ai`；[ci.yml](../.github/workflows/ci.yml) 三个 build/vet/test 循环全部纳入
 
-**v0.4.1 承接**：
+**下一阶段**：
 
 - 真实 Provider：OpenAI / Anthropic（含 rate limit / retry / rate-limited 错误码）
-- **tool-use 闭环**：`chat_stream` 检测 `ToolCall` → 借 Command Engine 执行 → 结果以 `role=tool` 消息回喂 provider 续写；Dangerous 命令仍走 `Confirmed=true` 二次确认
-- Desktop AI Chat 面板（简单版）
+- **宿主侧 tool-use 闭环**：宿主检测 `ToolCall` → 借 Command Engine 执行 allowlist 中的只读 Command → 结果以 `role=tool` 消息回喂 provider 续写；架构见 [ADR-0001](./adr/0001-host-side-ai-tool-orchestration.md)
+- CLI AI 入口与 Desktop AI Chat 面板
 
 **v0.5 承接**：
 
@@ -88,13 +90,14 @@
 - Embedding / vector store（RAG）
 - 通知 Provider（Webhook / Email / IM）作为独立 plugin
 
-## v0.5 — 扩展生态
+## v0.5 — 平台产品化
 
-- PVE Plugin
-- Kubernetes Plugin
-- 数据库 Plugin
-- Marketplace（插件市场雏形）
-- Workflow 版本化 / 迁移
+- 插件 manifest、SDK / Core 版本协商与兼容性检查
+- 插件安装、启停、升级、校验与本地 catalog
+- 配置 schema 驱动的 CLI / Desktop 配置体验
+- 数据迁移、诊断包、日志查看与更新机制
+- Marketplace 雏形；PVE 作为首个外部插件参考实现
+- Kubernetes、数据库插件延后到平台扩展机制稳定之后
 
 ## MVP 起步指南（附录 A）
 

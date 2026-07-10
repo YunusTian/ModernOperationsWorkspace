@@ -1,6 +1,6 @@
 # AI Plugin (v0.4 · 初稿)
 
-> 状态：📋 v0.4 计划中 · 本文档定义**接口与骨架**，v0.4 主要交付：
+> 状态：🚧 v0.4 实现中 · Provider 接口、mock 与三条 Command 已完成；正式发布范围见 [v0.4 验收清单](./v0.4-acceptance-checklist.md)。
 > 1. `sdk` 侧的 Provider / Chat / Tool 抽象；
 > 2. `plugins/ai` 骨架（含 mock provider + 三条 Command Handlers）；
 > 3. 与现有 Command Engine / Workflow 融合的调用协议。
@@ -136,9 +136,9 @@ providers:
     api_key_env: OPENAI_API_KEY
 ```
 
-**tool-use 循环**（v0.4.1 完善，v0.4 只留接口）：`ai.chat_stream` 内检测到
-`ToolCall` → 走 `command.Engine.Run` 调用对应 Command → 拿到结果拼成
-`role=tool` message → 再回调 provider 续写。这样 AI 就能"自然"地调用整个 MOW 生态。
+**tool-use 循环**由宿主侧编排，不在 AI 插件子进程内执行。宿主检测到
+`ToolCall` 后通过 `command.Engine.Run` 调用 allowlist 中的只读 Command，拿到结果拼成
+`role=tool` message，再调用 AI 插件续写。详见 [ADR-0001](./adr/0001-host-side-ai-tool-orchestration.md)。
 
 ## 5. 权限与审计
 
@@ -150,16 +150,16 @@ providers:
 ## 6. v0.4 交付范围（本文档一并落地）
 
 - [x] `docs/ai-plugin.md`（本文件）
-- [ ] `sdk/ai.go` —— Provider / ChatMessage / ChatRequest / ... 骨架（本次交付）
-- [ ] `plugins/ai/` 骨架：`main.go` / `providers/mock.go` / `commands.go`
-- [ ] 单测：Provider 注册、mock provider 的 chat / stream、ai.list_providers
-- [ ] 更新 `roadmap.md` / `README.md`
+- [x] `sdk/ai.go` —— Provider / ChatMessage / ChatRequest / ... 骨架
+- [x] `plugins/ai/` 骨架：`main.go` / `providers.go` / `commands.go`
+- [x] 单测：Provider 注册、mock provider 的 chat / stream、ai.list_providers
+- [x] 更新 `roadmap.md` / `README.md`
 
 **v0.4.1 承接**：
 
 - OpenAI / Anthropic Provider 真实实现（含 rate limit / retry）
-- tool-use 完整闭环（`chat_stream` 检测 `ToolCall` → Engine.Run → 续写）
-- Desktop AI Chat 面板（简单版）
+- 宿主侧 tool-use 完整闭环（`ToolCall` → Engine.Run → 续写）
+- CLI AI 入口与 Desktop AI Chat 面板
 
 **v0.5 承接**：
 

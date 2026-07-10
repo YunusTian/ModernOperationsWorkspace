@@ -108,7 +108,7 @@ func TestInit_DefaultsToMockProvider(t *testing.T) {
 func TestInit_UnknownKindRejected(t *testing.T) {
 	p := newAIPlugin()
 	raw, _ := json.Marshal(map[string]any{
-		"providers": []map[string]any{{"name": "x", "kind": "openai"}},
+		"providers": []map[string]any{{"name": "x", "kind": "unknown"}},
 	})
 	err := p.Init(context.Background(), sdk.InitRequest{Settings: raw, DataDir: t.TempDir()})
 	if err == nil || !strings.Contains(err.Error(), "unsupported provider kind") {

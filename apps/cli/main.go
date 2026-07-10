@@ -54,6 +54,7 @@ func newRootCmd() *cobra.Command {
 		newRecipeCmd(appHolder),
 		newWorkflowCmd(appHolder),
 		newSSHCmd(appHolder),
+		newAICmd(appHolder),
 	)
 	return root
 }

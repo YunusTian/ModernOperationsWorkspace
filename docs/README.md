@@ -18,6 +18,9 @@
 | [ssh-plugin.md](./ssh-plugin.md) | SSH 插件（v0.1） | 4.2 / 五 |
 | [docker-plugin.md](./docker-plugin.md) | Docker 插件（v0.3 全阶段：lifecycle / logs / rm / pull / push / exec / 只读列表） | 4.2 / 五 |
 | [ai.md](./ai.md) | AI 架构 | 六 |
+| [ai-plugin.md](./ai-plugin.md) | AI Provider 与插件协议（v0.4） | 六 |
+| [v0.4-acceptance-checklist.md](./v0.4-acceptance-checklist.md) | v0.4 发布验收清单 | 十一 |
+| [ADR-0001](./adr/0001-host-side-ai-tool-orchestration.md) | 宿主侧 AI tool-use 编排决策 | 六 |
 | [ui.md](./ui.md) | UI 层设计 | UI Layer |
 | [permission.md](./permission.md) | 权限模型 | 九 |
 | [observability.md](./observability.md) | 日志与可观测 | 十 |

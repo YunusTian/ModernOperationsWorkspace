@@ -113,8 +113,10 @@ func buildProvider(pc providerSettings) (sdk.Provider, error) {
 	switch pc.Kind {
 	case "", "mock":
 		return newMockProvider(pc), nil
+	case "openai", "openai-compatible":
+		return newOpenAIProvider(pc)
 	default:
-		return nil, fmt.Errorf("unsupported provider kind %q (v0.4 骨架仅支持 mock)", pc.Kind)
+		return nil, fmt.Errorf("unsupported provider kind %q", pc.Kind)
 	}
 }
 
