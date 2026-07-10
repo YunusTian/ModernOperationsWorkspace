@@ -1,14 +1,20 @@
 # MOW Release Workflow
 #
-# 触发：推送 v* 标签（如 v0.1.0）
+# 触发：推送 v* 标签（如 v0.3.0）
 # 行为：
-#   1. 跨平台编译 CLI（mow）、SSH Plugin（mow-ssh-plugin）、Desktop（mow-desktop）
-#   2. 创建 GitHub Release 并上传所有二进制文件
+#   1. 跨平台编译 CLI（mow）、SSH Plugin（mow-ssh-plugin）、Docker Plugin（mow-docker-plugin）、Desktop（mow-desktop）
+#   2. 为每个 tar.gz 生成 SHA-256 校验文件（.sha256）
+#   3. 创建 GitHub Release 并上传所有二进制与校验文件
 #
 # 目标平台：
 #   - linux/amd64, linux/arm64
 #   - windows/amd64
 #   - darwin/amd64, darwin/arm64
+#
+# 说明：
+#   - CLI / SSH Plugin / Docker Plugin 用 CGO_ENABLED=0 纯静态编译，全平台矩阵都能出产物
+#   - Desktop（Wails）需要 CGO，交叉编译能力受限，非原生平台若失败则跳过打包
+#   - Release 正文使用当前主版本的验收清单（v0.3.x → docs/v0.3-acceptance-checklist.md）
 
 name: release
 
@@ -65,6 +71,7 @@ jobs:
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "../../${BIN}" .
           cd ../..
           tar -czf "${tar_name}" "${BIN}"
+          rm -f "${BIN}"
           echo "CLI_ARCHIVE=${tar_name}" >> $GITHUB_ENV
 
       - name: Build SSH Plugin
@@ -80,7 +87,24 @@ jobs:
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "../../${BIN}" .
           cd ../..
           tar -czf "${tar_name}" "${BIN}"
-          echo "PLUGIN_ARCHIVE=${tar_name}" >> $GITHUB_ENV
+          rm -f "${BIN}"
+          echo "SSH_PLUGIN_ARCHIVE=${tar_name}" >> $GITHUB_ENV
+
+      - name: Build Docker Plugin
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="mow-docker-plugin${{ matrix.goos == 'windows' && '.exe' || '' }}"
+          tar_name="mow-docker-plugin-${{ matrix.target }}-${{ matrix.arch }}.tar.gz"
+          cd plugins/docker
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "../../${BIN}" .
+          cd ../..
+          tar -czf "${tar_name}" "${BIN}"
+          rm -f "${BIN}"
+          echo "DOCKER_PLUGIN_ARCHIVE=${tar_name}" >> $GITHUB_ENV
 
       - name: Build Desktop (skip non-native)
         env:
@@ -99,10 +123,23 @@ jobs:
           cd ../..
           if [ -f "${BIN}" ]; then
             tar -czf "${tar_name}" "${BIN}"
+            rm -f "${BIN}"
             echo "DESKTOP_ARCHIVE=${tar_name}" >> $GITHUB_ENV
           else
             echo "DESKTOP_ARCHIVE=" >> $GITHUB_ENV
           fi
+
+      - name: Generate SHA-256 checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 为当前 matrix 生成的所有 tar.gz 计算 SHA-256；
+          # 单独一份 .sha256 便于用户 `sha256sum -c` 或 GitHub 上直接查看。
+          shopt -s nullglob
+          for f in *.tar.gz; do
+            sha256sum "$f" > "$f.sha256"
+          done
+          ls -la *.tar.gz *.sha256 || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -110,6 +147,7 @@ jobs:
           name: binaries-${{ matrix.target }}-${{ matrix.arch }}
           path: |
             *.tar.gz
+            *.sha256
           retention-days: 1
 
   # =========================================================================
@@ -128,15 +166,45 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: List artifacts
-        run: ls -la artifacts/
+      - name: Generate aggregate SHA-256 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd artifacts
+          # 汇总一份总的 SHA256SUMS，兼容 `sha256sum -c SHA256SUMS`
+          sha256sum *.tar.gz > SHA256SUMS
+          echo "---- artifacts ----"
+          ls -la
+          echo "---- SHA256SUMS ----"
+          cat SHA256SUMS
+
+      - name: Resolve release notes body path
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME:-${{ github.ref_name }}}"
+          # 从 tag 中解析主版本号，形如 v0.3.0 / v0.3.1 → 0.3
+          # 用于选取 docs/v0.<major>.<minor>-acceptance-checklist.md
+          MAJOR_MINOR=$(echo "$TAG" | sed -E 's/^v([0-9]+\.[0-9]+).*/\1/')
+          CANDIDATE="docs/v${MAJOR_MINOR}-acceptance-checklist.md"
+          if [ -f "$CANDIDATE" ]; then
+            echo "path=$CANDIDATE" >> "$GITHUB_OUTPUT"
+          else
+            # 兜底：按最新发布版本使用 v0.3
+            echo "path=docs/v0.3-acceptance-checklist.md" >> "$GITHUB_OUTPUT"
+          fi
+          echo "resolved body_path: $(cat "$GITHUB_OUTPUT" | grep '^path=' | cut -d= -f2)"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}
-          body_path: docs/v0.1-acceptance-checklist.md
-          files: artifacts/*.tar.gz
+          body_path: ${{ steps.notes.outputs.path }}
+          files: |
+            artifacts/*.tar.gz
+            artifacts/*.sha256
+            artifacts/SHA256SUMS
           draft: false
           prerelease: false
           generate_release_notes: false
