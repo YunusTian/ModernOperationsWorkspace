@@ -267,3 +267,40 @@ func evalExpr(exprStr string, scope Scope, offset int) (any, error) {
 func runProgram(p *vm.Program, env any) (any, error) {
 	return expr.Run(p, env)
 }
+
+// -----------------------------------------------------------------------------
+// 独立表达式求值（供 `when` 等无 ${} 包裹场景使用）
+// -----------------------------------------------------------------------------
+
+// EvalBool 把整串视为一个 expr 表达式并求成布尔值。
+//
+// 用于 Step.When：不需要 ${} 包裹，直接写 "inputs.debug == true"。
+// 与 Interpolate 内部行为对齐——把结果按 expr-lang 语义强转为 bool。
+//
+// 出错时返回 InterpolationError（Offset=0，Expr=原串），便于 UI 归一化提示。
+func EvalBool(exprStr string, scope Scope) (bool, error) {
+	trimmed := strings.TrimSpace(exprStr)
+	if trimmed == "" {
+		return false, &InterpolationError{
+			Offset: 0, Expr: exprStr,
+			Cause: errors.New("empty expression"),
+		}
+	}
+	env := scope.env()
+	program, err := expr.Compile(trimmed, expr.Env(env), expr.AsBool())
+	if err != nil {
+		return false, &InterpolationError{Offset: 0, Expr: exprStr, Cause: err}
+	}
+	out, err := runProgram(program, env)
+	if err != nil {
+		return false, &InterpolationError{Offset: 0, Expr: exprStr, Cause: err}
+	}
+	b, ok := out.(bool)
+	if !ok {
+		return false, &InterpolationError{
+			Offset: 0, Expr: exprStr,
+			Cause: fmt.Errorf("expected bool, got %T", out),
+		}
+	}
+	return b, nil
+}

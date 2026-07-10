@@ -17,7 +17,8 @@ type LogEntry = {
   stepId: string;
   ref: string;
   kind: string;
-  status: "running" | "ok" | "fail";
+  status: "running" | "ok" | "fail" | "skipped";
+  when?: string;
   durationMs?: number;
   errorCode?: string;
   errorMsg?: string;
@@ -159,6 +160,7 @@ export default function WorkflowPage({ activeTarget }: Props) {
             stepId: ev.step_id,
             ref: ev.ref,
             kind: ev.kind,
+            when: ev.when,
             status: "running",
           };
           if (idx >= 0) next[idx] = entry;
@@ -166,9 +168,20 @@ export default function WorkflowPage({ activeTarget }: Props) {
           return next;
         }
         if (idx < 0) return next;
+        let status: LogEntry["status"];
+        switch (ev.phase) {
+          case "finish":
+            status = "ok";
+            break;
+          case "skip":
+            status = "skipped";
+            break;
+          default:
+            status = "fail";
+        }
         next[idx] = {
           ...next[idx],
-          status: ev.phase === "finish" ? "ok" : "fail",
+          status,
           durationMs: ev.duration_ms,
           errorCode: ev.error_code,
           errorMsg: ev.error_msg,
@@ -299,13 +312,22 @@ export default function WorkflowPage({ activeTarget }: Props) {
           {logs.map((e) => (
             <div key={e.key} className={`wf-log wf-log-${e.status}`}>
               <span className="wf-icon">
-                {e.status === "running" ? "▶" : e.status === "ok" ? "✓" : "✗"}
+                {e.status === "running"
+                  ? "▶"
+                  : e.status === "ok"
+                  ? "✓"
+                  : e.status === "skipped"
+                  ? "⤼"
+                  : "✗"}
               </span>
               <span className="wf-step">{e.stepId}</span>
               <span className="wf-ref">
                 ({e.kind}:{e.ref})
               </span>
-              {e.durationMs !== undefined && (
+              {e.status === "skipped" && e.when && (
+                <span className="wf-when">when: {e.when}</span>
+              )}
+              {e.durationMs !== undefined && e.status !== "skipped" && (
                 <span className="wf-dur">{e.durationMs}ms</span>
               )}
               {e.errorCode && (

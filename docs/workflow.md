@@ -114,6 +114,7 @@ workflow:
 | `recipe` | string | 内置 recipe id；与 `command` 二选一 |
 | `params` | map | 传给 Command / Recipe 的入参；值可用 `${...}` 插值 |
 | `timeout` | duration | 例：`5s` / `1m30s`；`0` 或缺省走底层默认 |
+| `when` | string | 可选；expr-lang 表达式，求值为 `false` 时跳过（`Skipped`），求值失败中断 Workflow。**v0.3 第一批已合入** |
 
 ### 7.4 变量插值
 
@@ -126,21 +127,46 @@ workflow:
   - 混合形态 → 逐段替换后拼字符串
   - 未定义变量 / 语法错误 → `InterpolationError` 携带偏移量 + 表达式
 
+#### 7.4.1 `when` 条件分支（v0.3 第一批）
+
+```yaml
+steps:
+  - id: probe
+    command: ssh.exec
+    params: { cmd: "curl -sf http://localhost/healthz || echo unhealthy" }
+
+  - id: repair
+    command: ssh.exec
+    when: 'contains(steps.probe.out.stdout, "unhealthy")'
+    params: { cmd: "systemctl restart myapp" }
+
+  - id: notify
+    command: notify.webhook
+    when: inputs.notify_on_skip == false || steps.repair.out.ok
+    params: { message: "deployment finished" }
+```
+
+- 语法与 `${...}` 内一致，但整串就是表达式，**不需要** `${}` 包裹
+- `false` → Step 记为 `Skipped`，`OK=true`，不写 `steps.<id>.out.*`
+- 求值失败 → `ErrorCode=WHEN_EVAL`，Workflow 中断（防御式：与语法错等同）
+- CLI 打印 `⤼ skipped (when=...)`；Desktop 用 `⤼` 图标 + `wf-log-skipped` 样式区分
+
 ### 7.5 尚未实现（v0.3+）
 
-| 字段 / 特性 | 计划版本 | 说明 |
+按 **分批推进** 顺序落地，避免一次交付太大：
+
+| 字段 / 特性 | 状态 | 说明 |
 | --- | --- | --- |
-| `parallel: true` | **v0.3+** | 并行执行组内 steps，取消传播语义待定 |
-| `when: <expr>` | **v0.3+** | 条件分支；表达式复用 expr-lang |
-| `on_failure` / `onFailure` | **v0.3+** | 失败时的补偿动作声明 |
-| `retry: { max, backoff }` | **v0.3+** | 单 step / 组内重试策略 |
-| `notify: { channel, target }` | **v0.3+** | 邮件 / IM / Webhook 通知 |
-| `rollback: [step_ids...]` | **v0.3+** | 声明式回滚 |
-| 每 Step 独立 `target` | v0.3+ | v0.2 全 Workflow 共用一个 target |
-| 状态持久化（SQLite） | v0.3+ | 与审计日志共享存储 |
+| `when: <expr>` | 🔨 **v0.3 第一批（已合入）** | 条件分支；表达式复用 expr-lang，无 `${}` 包裹 |
+| `retry: { max, backoff }` | ⏳ v0.3 第二批 | 单 step 重试；先做 fixed / exponential backoff，暂不实现 jitter |
+| 状态持久化（SQLite） | ⏳ v0.3 第三批 | 与审计日志共享存储；先只做执行历史查询 |
+| `on_failure` / `rollback` | ⏳ v0.3 第四批 | 手动声明式回滚；`rollback` 是 `on_failure` 的语法糖 |
+| `parallel: true` | ⏳ v0.3 第五批 | **最后做**，涉及取消传播、资源竞争、事件顺序、审计一致性、测试复杂度显著上升 |
+| `notify: { channel, target }` | v0.4+ | 邮件 / IM / Webhook 通知 |
+| 每 Step 独立 `target` | v0.4+ | v0.3 仍全 Workflow 共用一个 target |
 | Workflow 版本化 / 迁移 | v0.4+ | 与 Marketplace 联动 |
 
-严格模式下（v0.2 已实现），YAML 若出现上述未知字段会**直接报错**；因此升级到 v0.3 前，任何声明这些字段的 workflow 都需要显式等待引擎升级。
+> 严格模式（YAML 未知字段报错）不受影响：每一批合入前，写了新字段的 workflow 都会直接被拒绝，避免拼写歧义。
 
 ---
 

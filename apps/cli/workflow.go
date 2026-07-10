@@ -359,6 +359,15 @@ func (p *progressPrinter) onStep(ev workflow.StepEvent) {
 			formatDur(ev.Result.Duration),
 		)
 
+	case workflow.PhaseSkip:
+		when := ""
+		if ev.Step.When != "" {
+			when = fmt.Sprintf(" %s(when=%s)%s", p.c(ansiDim), ev.Step.When, p.c(ansiReset))
+		}
+		fmt.Fprintf(p.w, "%s⤼%s skipped%s\n",
+			p.c(ansiYellow), p.c(ansiReset), when,
+		)
+
 	case workflow.PhaseError:
 		code := ""
 		msg := ""
@@ -399,6 +408,16 @@ func printWorkflowSummary(w io.Writer, res *workflow.Result, color bool) {
 	if color {
 		tag = col + status + ansiReset
 	}
-	fmt.Fprintf(w, "\nworkflow=%s status=%s duration=%s\n",
-		res.WorkflowID, tag, res.Duration.Round(time.Millisecond))
+	skipped := 0
+	for _, s := range res.Steps {
+		if s.Skipped {
+			skipped++
+		}
+	}
+	skippedTag := ""
+	if skipped > 0 {
+		skippedTag = fmt.Sprintf(" skipped=%d", skipped)
+	}
+	fmt.Fprintf(w, "\nworkflow=%s status=%s duration=%s%s\n",
+		res.WorkflowID, tag, res.Duration.Round(time.Millisecond), skippedTag)
 }

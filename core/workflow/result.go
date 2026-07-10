@@ -33,8 +33,12 @@ type StepResult struct {
 	Command string `json:"command,omitempty"`
 	Recipe  string `json:"recipe,omitempty"`
 
-	// OK：本步是否成功。
+	// OK：本步是否成功（跳过也视为 OK=true，用 Skipped 区分）。
 	OK bool `json:"ok"`
+
+	// Skipped：Step 因 `when` 求值为 false 而未执行。此时 AuditID / Data / Duration
+	// 都为零值；上层 UI 可据此渲染 ⤼ 图标。
+	Skipped bool `json:"skipped,omitempty"`
 
 	// AuditID：单条 Command 场景下透传的审计 ID；Recipe 场景为空。
 	AuditID string `json:"audit_id,omitempty"`

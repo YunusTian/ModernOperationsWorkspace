@@ -50,6 +50,7 @@ type yamlStep struct {
 	Recipe  string         `yaml:"recipe"`
 	Params  map[string]any `yaml:"params"`
 	Timeout string         `yaml:"timeout"`
+	When    string         `yaml:"when"`
 }
 
 // LoadFile 从文件路径加载并解析 Workflow。
@@ -132,6 +133,7 @@ func (y *yamlWorkflow) toWorkflow() (*Workflow, error) {
 				Command: ys.Command,
 				Recipe:  ys.Recipe,
 				Params:  ys.Params,
+				When:    ys.When,
 			}
 			if ys.Timeout != "" {
 				d, err := time.ParseDuration(ys.Timeout)

@@ -97,12 +97,14 @@ export type WorkflowRunInput = {
 };
 
 export type WorkflowStepEvent = {
-  phase: "start" | "finish" | "error";
+  phase: "start" | "finish" | "error" | "skip";
   index: number;
   step_id: string;
   kind: "cmd" | "recipe";
   ref: string;
+  when?: string;
   duration_ms?: number;
+  skipped?: boolean;
   error_code?: string;
   error_msg?: string;
 };

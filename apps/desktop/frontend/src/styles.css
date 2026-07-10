@@ -335,6 +335,17 @@ body,
 .wf-log-running .wf-icon {
   color: #6cf;
 }
+.wf-log-skipped .wf-icon {
+  color: #d0a24a;
+}
+.wf-log-skipped {
+  color: #999;
+}
+.wf-when {
+  color: #b39c5a;
+  font-family: "Menlo", "Consolas", monospace;
+  font-size: 12px;
+}
 .wf-icon {
   width: 12px;
   text-align: center;

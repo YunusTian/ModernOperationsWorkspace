@@ -65,11 +65,17 @@ type StepPhase string
 
 const (
 	// PhaseStart：Step 开始前触发，Result 为 nil。
+	//
+	// 注意：即使 Step 会被 when 跳过，也会触发一次 PhaseStart，紧跟 PhaseSkip。
+	// 这样上层 UI 无需在渲染前预测未来行为。
 	PhaseStart StepPhase = "start"
 	// PhaseFinish：Step 成功完成后触发，Result 已填充且 OK=true。
 	PhaseFinish StepPhase = "finish"
 	// PhaseError：Step 失败后触发，Result 已填充且 OK=false，Err 非 nil。
 	PhaseError StepPhase = "error"
+	// PhaseSkip：Step 因 when 求值为 false 而被跳过，Result 已填充且
+	// OK=true、Skipped=true；Err 为 nil。
+	PhaseSkip StepPhase = "skip"
 )
 
 // StepEvent 是单个 Step 生命周期事件。
@@ -155,6 +161,16 @@ func (r *Runner) Run(ctx context.Context, w *Workflow, opts RunOptions) (*Result
 			return res, fmt.Errorf("step %q failed: %s", sr.StepID, sr.ErrorMsg)
 		}
 
+		// 跳过：不写 scope.Steps.<id>.out（避免后续 step 误引用不存在的字段），
+		// 只广播一次 PhaseSkip 供 UI/CLI 渲染。
+		if sr.Skipped {
+			emit(opts.OnStep, StepEvent{
+				Phase: PhaseSkip, Index: i, Step: step,
+				Result: &res.Steps[len(res.Steps)-1],
+			})
+			continue
+		}
+
 		// 成功：把 out 挂进作用域
 		scope.Steps[step.ID] = StepScope{Out: decodeOut(sr.Data)}
 
@@ -176,6 +192,21 @@ func (r *Runner) runStep(ctx context.Context, step Step, scope Scope, opts RunOp
 	sr := StepResult{StepID: step.ID, Command: step.Command, Recipe: step.Recipe}
 	stepStart := time.Now()
 	defer func() { sr.Duration = time.Since(stepStart) }()
+
+	// 0. When：可选条件表达式。空 → 无条件执行；false → 跳过；求值失败 → 中断。
+	if step.When != "" {
+		ok, err := EvalBool(step.When, scope)
+		if err != nil {
+			sr.ErrorCode = "WHEN_EVAL"
+			sr.ErrorMsg = err.Error()
+			return sr
+		}
+		if !ok {
+			sr.OK = true
+			sr.Skipped = true
+			return sr
+		}
+	}
 
 	// 1. 插值
 	interpolated, err := Interpolate(step.Params, scope)

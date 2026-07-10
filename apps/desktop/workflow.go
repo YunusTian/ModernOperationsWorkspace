@@ -173,8 +173,14 @@ func emitStepEvent(ctx context.Context, sess string, ev workflow.StepEvent) {
 		"kind":    kind,
 		"ref":     ref,
 	}
+	if ev.Step.When != "" {
+		payload["when"] = ev.Step.When
+	}
 	if ev.Result != nil {
 		payload["duration_ms"] = ev.Result.Duration.Milliseconds()
+		if ev.Result.Skipped {
+			payload["skipped"] = true
+		}
 		if ev.Result.ErrorCode != "" {
 			payload["error_code"] = ev.Result.ErrorCode
 		}

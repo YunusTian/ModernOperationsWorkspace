@@ -66,6 +66,17 @@ type Step struct {
 
 	// Timeout：单步超时；0 表示走底层默认。
 	Timeout time.Duration
+
+	// When 是可选的条件表达式（expr-lang 语法，等价于 ${...} 内部）。
+	//
+	// 语义：
+	//   - 为空 → 无条件执行（默认）
+	//   - 非空 → 走 expr 求值 + 布尔判定；true 执行，false 跳过（Skipped）
+	//   - 求值失败 → Step 记 ErrorCode="WHEN_EVAL" 并中断 Workflow
+	//
+	// 允许引用与 Params 同款作用域：${inputs.*}、${steps.<id>.out.*}。
+	// 与 Params 不同的是这里不需要 ${} 包裹（整串就是表达式）。
+	When string
 }
 
 // Workflow 是一次完整的编排声明。

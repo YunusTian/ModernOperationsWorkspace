@@ -34,13 +34,13 @@
 - **Docker Dashboard**（Desktop 新增 Tab）
   - 🔨 **第二阶段（已合入）**：容器列表（含 state 徽标） → inspect 抽屉 → 流式 logs 面板 → start / stop / restart 二次确认弹窗 — 详见 [docker-plugin.md §11](./docker-plugin.md#11-docker-dashboardv03-第二阶段)
   - ⏳ 第三阶段：镜像 / 卷 / 网络 / Compose 视图；`docker.rm` 前置弹窗；容器 exec 交互式终端
-- **Workflow 引擎增强**（与 Docker Plugin 联动）
-  - `on_failure` / `rollback` 声明式回滚
-  - `retry: { max, backoff }` 重试策略
-  - 单 step 级 `target` 覆盖
-  - `parallel: true` 组内并行
-  - `when: <expr>` 条件分支
-- **Workflow 执行历史持久化**（SQLite，与审计日志共享）
+- **Workflow 引擎增强**（分批推进，避免一次交付太大）
+  - 🔨 **第一批（已合入）**：`when: <expr>` 条件分支 — 详见 [workflow.md §7.4.1](./workflow.md#741-when-条件分支v03-第一批)
+  - ⏳ 第二批：`retry: { max, backoff }` 单 step 重试
+  - ⏳ 第三批：**Workflow 执行历史持久化**（SQLite，与审计日志共享）
+  - ⏳ 第四批：`on_failure` / `rollback` 声明式回滚
+  - ⏳ 第五批：`parallel: true` 组内并行（最后做——取消传播、资源竞争、事件顺序、审计一致性、测试复杂度显著增加）
+  - v0.4+：单 step 级 `target` 覆盖 / `notify:` 通知 / Workflow 版本化
 
 ## v0.4 — AI Plugin
 
