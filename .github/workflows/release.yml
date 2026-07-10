@@ -106,6 +106,22 @@ jobs:
           rm -f "${BIN}"
           echo "DOCKER_PLUGIN_ARCHIVE=${tar_name}" >> $GITHUB_ENV
 
+      - name: Build AI Plugin
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="mow-ai-plugin${{ matrix.goos == 'windows' && '.exe' || '' }}"
+          tar_name="mow-ai-plugin-${{ matrix.target }}-${{ matrix.arch }}.tar.gz"
+          cd plugins/ai
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "../../${BIN}" .
+          cd ../..
+          tar -czf "${tar_name}" "${BIN}"
+          rm -f "${BIN}"
+          echo "AI_PLUGIN_ARCHIVE=${tar_name}" >> $GITHUB_ENV
+
       - name: Build Desktop (skip non-native)
         env:
           GOOS: ${{ matrix.goos }}

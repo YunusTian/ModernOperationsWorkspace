@@ -58,14 +58,14 @@ type Provider interface {
 // 与 sdk.Metadata 的思路一致：静态可读，便于 UI / Command 内部路由。
 type ProviderCapabilities struct {
 	// Chat 是否支持 non-streaming Chat 调用。
-	Chat bool
+	Chat bool `json:"chat"`
 	// ChatStream 是否支持流式 Chat 调用。
-	ChatStream bool
+	ChatStream bool `json:"chat_stream"`
 	// ToolCalls 是否支持 tool-use / function calling。
 	// v0.4 骨架里 mock provider 会返回 false；真实 OpenAI/Anthropic 返回 true。
-	ToolCalls bool
+	ToolCalls bool `json:"tool_calls"`
 	// Models 支持的模型 ID 列表（用于 UI 下拉）。可空表示 provider 自行处理默认值。
-	Models []string
+	Models []string `json:"models,omitempty"`
 }
 
 // -----------------------------------------------------------------------------

@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -21,8 +25,125 @@ type aiChatOpts struct {
 
 func newAICmd(h *appHolder) *cobra.Command {
 	cmd := &cobra.Command{Use: "ai", Short: "Use configured AI providers"}
-	cmd.AddCommand(newAIProvidersCmd(h), newAIAskCmd(h))
+	cmd.AddCommand(newAIProvidersCmd(h), newAIAskCmd(h), newAIChatCmd(h))
 	return cmd
+}
+
+func newAIChatCmd(h *appHolder) *cobra.Command {
+	o := &aiChatOpts{}
+	cmd := &cobra.Command{Use: "chat [prompt]", Short: "Stream an AI conversation", Args: cobra.MaximumNArgs(1), RunE: func(_ *cobra.Command, args []string) error {
+		var first string
+		if len(args) == 1 {
+			first = args[0]
+		}
+		return runAIChat(h, o, first)
+	}}
+	f := cmd.Flags()
+	f.StringVar(&o.Provider, "provider", "", "provider name (default: first configured)")
+	f.StringVar(&o.Model, "model", "", "model (default: provider setting)")
+	f.DurationVar(&o.Timeout, "timeout", 0, "timeout per response")
+	return cmd
+}
+
+func runAIChat(h *appHolder, o *aiChatOpts, first string) error {
+	app, err := h.Load()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	defer app.Close(ctx)
+	if err = app.ensurePluginEnabled(ctx, "ai"); err != nil {
+		return err
+	}
+	scanner := bufio.NewScanner(os.Stdin)
+	messages := []sdk.ChatMessage{}
+	prompt := first
+	for {
+		if prompt == "" {
+			if isTerminal(os.Stdin) {
+				fmt.Fprint(os.Stdout, "> ")
+			}
+			if !scanner.Scan() {
+				return scanner.Err()
+			}
+			prompt = strings.TrimSpace(scanner.Text())
+		}
+		if prompt == "" {
+			continue
+		}
+		if prompt == "/exit" || prompt == "/quit" {
+			return nil
+		}
+		messages = append(messages, sdk.ChatMessage{Role: sdk.RoleUser, Content: prompt})
+		params, _ := json.Marshal(map[string]any{"provider": o.Provider, "model": o.Model, "messages": messages})
+		roundCtx := ctx
+		cancelRound := func() {}
+		if o.Timeout > 0 {
+			roundCtx, cancelRound = context.WithTimeout(ctx, o.Timeout)
+		}
+		stream := newCLIChatStream(roundCtx, params)
+		req := command.Request{PluginID: "ai", CommandID: "chat_stream", Params: params, Timeout: o.Timeout, Caller: sdk.Caller{Type: sdk.CallerCLI, User: currentUser()}}
+		err = app.Engine.RunStream(roundCtx, req, stream)
+		cancelRound()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stdout)
+		if stream.final.Message.Role != "" {
+			messages = append(messages, stream.final.Message)
+		}
+		if first != "" && !isTerminal(os.Stdin) {
+			return nil
+		}
+		prompt = ""
+	}
+}
+
+type cliChatStream struct {
+	ctx     context.Context
+	params  json.RawMessage
+	auditID string
+	final   sdk.ChatResponse
+	mu      sync.Mutex
+	recv    chan sdk.Incoming
+}
+
+func newCLIChatStream(ctx context.Context, p json.RawMessage) *cliChatStream {
+	return &cliChatStream{ctx: ctx, params: p, recv: make(chan sdk.Incoming)}
+}
+func (s *cliChatStream) SetAuditID(v string)         { s.auditID = v }
+func (s *cliChatStream) Context() context.Context    { return s.ctx }
+func (s *cliChatStream) AuditID() string             { return s.auditID }
+func (s *cliChatStream) Caller() sdk.Caller          { return sdk.Caller{Type: sdk.CallerCLI} }
+func (s *cliChatStream) Confirmed() bool             { return false }
+func (s *cliChatStream) Params(v any) error          { return json.Unmarshal(s.params, v) }
+func (s *cliChatStream) RawParams() json.RawMessage  { return s.params }
+func (s *cliChatStream) Connection() *sdk.Connection { return nil }
+func (s *cliChatStream) Recv() <-chan sdk.Incoming   { return s.recv }
+func (s *cliChatStream) Stdout(b []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := os.Stdout.Write(b)
+	return err
+}
+func (s *cliChatStream) Stderr(b []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := os.Stderr.Write(b)
+	return err
+}
+func (s *cliChatStream) Event(v any) error {
+	b, _ := json.Marshal(v)
+	fmt.Fprintf(os.Stderr, "\n[tool] %s\n", b)
+	return nil
+}
+func (s *cliChatStream) Finish(v any, _ int) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, &s.final)
 }
 
 func newAIProvidersCmd(h *appHolder) *cobra.Command {

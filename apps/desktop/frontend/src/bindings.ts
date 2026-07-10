@@ -68,6 +68,13 @@ export type ShellOpenInput = {
   cols?: number;
 };
 
+export type AIProviderVM = {
+  name: string;
+  capabilities: { chat: boolean; chat_stream: boolean; tool_calls: boolean; models?: string[] };
+};
+export type AIMessage = { role: "system" | "user" | "assistant" | "tool"; content?: string; tool_call_id?: string };
+export type AIChatOpenInput = { provider?: string; model?: string; messages: AIMessage[]; timeout_seconds?: number };
+
 // -----------------------------------------------------------------------------
 // Workflow
 // -----------------------------------------------------------------------------
@@ -372,6 +379,11 @@ export const App = {
   ShellResize: (sessionID: string, rows: number, cols: number) =>
     call<void>("ShellResize", sessionID, rows, cols),
   ShellClose: (sessionID: string) => call<void>("ShellClose", sessionID),
+
+  AIProviders: () => call<AIProviderVM[]>("AIProviders"),
+  AIChatOpen: (in_: AIChatOpenInput) => call<string>("AIChatOpen", in_),
+  AIChatStart: (sessionID: string) => call<void>("AIChatStart", sessionID),
+  AIChatClose: (sessionID: string) => call<void>("AIChatClose", sessionID),
 
   WorkflowValidate: (yamlText: string) =>
     call<WorkflowValidateResult>("WorkflowValidate", yamlText),

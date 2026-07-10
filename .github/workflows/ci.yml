@@ -134,6 +134,7 @@ jobs:
         working-directory: apps/desktop/frontend
         run: |
           npm ci
+          npm test
           npm run build
 
   # ---------------------------------------------------------------------------
