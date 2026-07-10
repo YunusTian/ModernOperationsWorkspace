@@ -1,13 +1,13 @@
 # RFC: Roadmap
 
-- 状态：Draft
-- 版本：v0.1
-- 更新日期：2026-07-09
+- 状态：Living
+- 版本：v0.2
+- 更新日期：2026-07-10
 - 相关章节：Architecture.md § 十一
 
 ---
 
-## v0.1 — 优秀的 SSH 客户端
+## v0.1 — 优秀的 SSH 客户端 ✅
 
 - SSH 连接
 - Terminal
@@ -16,16 +16,35 @@
 - Plugin Framework（雏形）
 - **不接入 AI**
 
-## v0.2 — Command / Recipe / Workflow
+## v0.2 — Command / Recipe / Workflow ✅ 已发布
 
 - Command Engine
-- Recipe Engine（`system.cpu` / `system.disk` / `docker.status` 等）
-- Workflow Engine（部署 .NET / Node / Docker、备份数据库）
+- Recipe Engine（内置 `system.cpu` / `system.disk`）
+- **Workflow Engine（YAML DSL + `${var}` 插值 + Runner）**
+  - CLI：`mow workflow validate|run`
+  - Desktop：`WorkflowPage`（拖拽 / 表单 / 实时日志流）
+  - E2E：`deploy-static-site.yaml` 通过 fake SSH server 走通
+- 边界：仅顺序执行 + 变量传递；`parallel` / `when` / `on_failure` / `retry` / `notify` / `rollback` 均**未实现**，见 [docs/workflow.md §7.5](./workflow.md#75-尚未实现-v03)。
 
-## v0.3 — Docker Plugin
+## v0.3 — Docker Plugin + Docker Dashboard 🎯 下一版
 
-- Docker Plugin（list / pull / stop / logs / rm）
-- Docker Dashboard（GUI）
+- **Docker Plugin**（作为独立进程 gRPC 插件）
+  - `docker.list` / `docker.inspect`
+  - `docker.pull` / `docker.push`
+  - `docker.start` / `docker.stop` / `docker.restart` / `docker.rm`
+  - `docker.logs`（流式）
+  - `docker.exec`（流式）
+- **Docker Dashboard**（Desktop 新增 Tab）
+  - 容器列表 + 状态徽标（running / exited / paused）
+  - 端口 / 挂载 / 环境变量只读视图
+  - 一键 logs / restart / rm（Dangerous 走二次确认）
+- **Workflow 引擎增强**（与 Docker Plugin 联动）
+  - `on_failure` / `rollback` 声明式回滚
+  - `retry: { max, backoff }` 重试策略
+  - 单 step 级 `target` 覆盖
+  - `parallel: true` 组内并行
+  - `when: <expr>` 条件分支
+- **Workflow 执行历史持久化**（SQLite，与审计日志共享）
 
 ## v0.4 — AI Plugin
 
@@ -33,6 +52,7 @@
 - Provider 抽象（ChatGPT / Claude / Gemini / Qwen / DeepSeek / Local）
 - MCP 支持
 - AI 只能调用已有 Recipe / Workflow / Command
+- 通知 Provider（Webhook / Email / IM）
 
 ## v0.5 — 扩展生态
 
@@ -40,6 +60,7 @@
 - Kubernetes Plugin
 - 数据库 Plugin
 - Marketplace（插件市场雏形）
+- Workflow 版本化 / 迁移
 
 ## MVP 起步指南（附录 A）
 

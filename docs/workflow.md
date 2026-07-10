@@ -1,8 +1,8 @@
 # RFC: Workflow Engine
 
-- 状态：Draft
-- 版本：v0.1
-- 更新日期：2026-07-09
+- 状态：**Implemented (MVP)**
+- 版本：v0.2
+- 更新日期：2026-07-10
 - 相关章节：Architecture.md § 4.5
 
 ---
@@ -28,6 +28,8 @@ Workflow = **多个 Recipe / Command 的编排**。
 - 通知（邮件 / IM / Webhook）
 - 变量与上下文传递
 
+> v0.2 已交付 **顺序执行 + 变量传递** 两项，其余能力见 §7.5 与 [docs/roadmap.md](./roadmap.md)。
+
 ## 4. Workflow 声明草案（YAML）
 
 ```yaml
@@ -41,44 +43,47 @@ workflow:
   steps:
     - id: upload
       command: ssh.upload
-      params: { file: "${package}", dest: "/opt/app/" }
+      params: { file: "${inputs.package}", dest: "/opt/app/" }
     - id: stop
       command: ssh.exec
-      params: { cmd: "systemctl stop ${service}" }
+      params: { cmd: "systemctl stop ${inputs.service}" }
     - id: backup
       recipe: file.backup
     - id: start
       command: ssh.exec
-      params: { cmd: "systemctl start ${service}" }
+      params: { cmd: "systemctl start ${inputs.service}" }
     - id: health
       recipe: http.healthcheck
-      retry: { max: 3, backoff: 2s }
-  onFailure:
+      retry: { max: 3, backoff: 2s }      # v0.3+
+  onFailure:                              # v0.3+
     - rollback: [start, stop, upload]
     - notify: { channel: "webhook", target: "${notify.url}" }
 ```
 
-## 5. 技术选型（v0.1）
+## 5. 技术选型（v0.2 落地）
 
 | 项 | 选型 | 说明 |
 | --- | --- | --- |
-| DSL 格式 | **YAML**（首版） | 门槛低、可读、便于版本控制 |
-| DSL 解析 | `gopkg.in/yaml.v3` | |
-| 变量表达式 | `expr-lang/expr`（Go 表达式引擎） | 支持 `${var}` 与条件判断 |
-| 状态持久化 | SQLite（Workflow 执行历史） | 与审计日志共享 |
-| 通知 | Provider 抽象（Webhook / Email / IM 后续插件化） | |
+| DSL 格式 | **YAML** | 门槛低、可读、便于版本控制 |
+| DSL 解析 | `gopkg.in/yaml.v3`（严格模式 `KnownFields(true)`） | 未知字段直接报错，避免拼写错误静默生效 |
+| 变量表达式 | `github.com/expr-lang/expr` | 支持 `${var}` 与条件、算术表达式 |
+| 执行器 | `workflow.Runner` + `CommandExecutor` / `RecipeExecutor` 抽象 | CLI / Desktop 各自注入 Adapter |
+| 状态持久化 | 暂无（v0.3+ 引入 SQLite） | 目前仅内存 Result |
+| 通知 | 暂无（v0.3+ 引入 Provider 抽象） | |
 
-## 6. 待讨论
+## 6. 待讨论 / Roadmap
 
-- [ ] Rollback 是否自动生成还是手动声明（v0.1 手动）
+- [ ] Rollback 自动生成 vs 手动声明（v0.2 未实现，v0.3 手动优先）
 - [ ] 并行步骤的资源竞争与取消传播
 - [ ] Workflow 版本化与迁移
 - [ ] 是否支持"人在回路"的手工确认节点
 - [ ] 是否支持代码定义（Go / TS Fluent API）作为 YAML 的补充
 
+---
+
 ## 7. MVP 已实现字段（v0.2）
 
-以下字段已在 `core/workflow` 落地并被 CLI / Desktop 消费；未列出者仍是 Roadmap。
+以下字段已在 `core/workflow` 落地并被 CLI (`mow workflow run`) / Desktop (`WorkflowPage`) 消费。
 
 ### 7.1 顶层 `workflow`
 
@@ -115,12 +120,90 @@ workflow:
 - `${inputs.<name>}` — Workflow 输入
 - `${steps.<id>.out.<field>}` — 已完成步骤的输出（`Step` 成功后其 `Data` 会被反序列化为 `map[string]any` 挂到 `out`）
 - 支持完整 [expr-lang](https://github.com/expr-lang/expr) 表达式：`${inputs.port + 1}`、`${inputs.debug ? "on" : "off"}`
-- 边界：整串仅一个 `${expr}` 保留原始类型；混合形态自动拼字符串；未定义变量报 `InterpolationError` 携带 offset
+- 边界：
+  - 字符串里没有 `${}` → 原样返回
+  - 整串仅一个 `${expr}` → 保留原始类型（int / bool / slice / …）
+  - 混合形态 → 逐段替换后拼字符串
+  - 未定义变量 / 语法错误 → `InterpolationError` 携带偏移量 + 表达式
 
-### 7.5 尚未实现（Roadmap）
+### 7.5 尚未实现（v0.3+）
 
-- `onFailure` / `rollback` / `retry` / `notify`
-- 分支 / 并行（`parallel: true`、`when: <expr>`）
-- 每 Step 独立 `target`
-- 状态持久化（SQLite）
-- Workflow 版本化 / 迁移
+| 字段 / 特性 | 计划版本 | 说明 |
+| --- | --- | --- |
+| `parallel: true` | **v0.3+** | 并行执行组内 steps，取消传播语义待定 |
+| `when: <expr>` | **v0.3+** | 条件分支；表达式复用 expr-lang |
+| `on_failure` / `onFailure` | **v0.3+** | 失败时的补偿动作声明 |
+| `retry: { max, backoff }` | **v0.3+** | 单 step / 组内重试策略 |
+| `notify: { channel, target }` | **v0.3+** | 邮件 / IM / Webhook 通知 |
+| `rollback: [step_ids...]` | **v0.3+** | 声明式回滚 |
+| 每 Step 独立 `target` | v0.3+ | v0.2 全 Workflow 共用一个 target |
+| 状态持久化（SQLite） | v0.3+ | 与审计日志共享存储 |
+| Workflow 版本化 / 迁移 | v0.4+ | 与 Marketplace 联动 |
+
+严格模式下（v0.2 已实现），YAML 若出现上述未知字段会**直接报错**；因此升级到 v0.3 前，任何声明这些字段的 workflow 都需要显式等待引擎升级。
+
+---
+
+## 8. 最小可跑示例
+
+见 [`examples/workflows/deploy-static-site.yaml`](../examples/workflows/deploy-static-site.yaml)。
+
+```yaml
+workflow:
+  id: deploy.static-site
+  name: Deploy Static Site
+  description: 最小可运行的静态站点发布 Workflow：备份 → 上传 → 健康检查
+
+  inputs:
+    - name: site
+      type: string
+      required: true
+      description: 站点名称（用于目录 / 备份文件命名）
+    - name: local_dir
+      type: string
+      required: true
+    - name: remote_dir
+      type: string
+      default: /var/www/site
+    - name: health_port
+      type: int
+      default: 80
+
+  steps:
+    - id: backup
+      command: ssh.exec
+      params:
+        cmd: "if [ -d ${inputs.remote_dir} ]; then tar -czf /tmp/backup-${inputs.site}.tgz -C ${inputs.remote_dir} .; else mkdir -p ${inputs.remote_dir}; fi"
+      timeout: 60s
+
+    - id: upload
+      command: ssh.exec
+      params:
+        cmd: "mkdir -p ${inputs.remote_dir} && echo uploaded ${inputs.site} from ${inputs.local_dir} to ${inputs.remote_dir}"
+      timeout: 60s
+
+    - id: health
+      command: ssh.exec
+      params:
+        cmd: "ss -ltn | grep -q ':${inputs.health_port} ' && echo healthy || echo unhealthy"
+      timeout: 10s
+```
+
+### CLI 用法
+
+```bash
+# 只解析 + 校验
+mow workflow validate examples/workflows/deploy-static-site.yaml
+
+# 实际执行（需要已注册的 SSH Target）
+mow workflow run examples/workflows/deploy-static-site.yaml \
+  --target=srv1 \
+  --input site=hello \
+  --input local_dir=/home/me/dist \
+  --input remote_dir=/var/www/hello \
+  --input health_port=8080
+```
+
+### Desktop 用法
+
+打开 **Workflow** 标签页 → 拖拽或选择 `.yaml` → 依据 `inputs` 声明填写表单 → **Run**，实时查看每一步 `▶/✓/✗` 的日志。

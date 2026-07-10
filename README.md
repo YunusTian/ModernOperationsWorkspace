@@ -9,7 +9,7 @@
 `Core First` · `AI Optional` · `Plugin Everything`
 
 [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](./LICENSE)
-[![Status](https://img.shields.io/badge/status-v0.1_Released-brightgreen.svg)](./Architecture.md)
+[![Status](https://img.shields.io/badge/status-v0.2_Released-brightgreen.svg)](./Architecture.md)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://go.dev)
 [![Wails](https://img.shields.io/badge/Wails-v2-DF0000.svg)](https://wails.io)
 
@@ -54,18 +54,22 @@ MOW 是一款面向**开发者与运维工程师**的跨平台运维工作台：
 ├── apps/
 │   ├── desktop/     # Wails 桌面客户端（Terminal / SFTP / Targets）
 │   └── cli/         # Cobra CLI（target / ssh / run / recipe）
-├── core/            # Core 模块（6 子包 · 47 测试）
+├── core/            # Core 模块（7 子包：包含 workflow）
 │   ├── command/     # Command Engine + Middleware + Audit
 │   ├── connection/  # Connection Manager + Keystore
 │   ├── plugin/      # Plugin Manager + Loader
 │   ├── recipe/      # Recipe Registry + Runner
+│   ├── workflow/    # Workflow YAML DSL + Runner + ${var} 插值（v0.2）
 │   ├── config/      # 配置管理
 │   └── logger/      # 结构化日志
 ├── sdk/             # Plugin SDK（gRPC + Protobuf + Go 抽象）
 ├── plugins/
 │   └── ssh/         # 官方 SSH Plugin（exec / shell / sftp / ping）
+├── examples/
+│   ├── recipes/
+│   └── workflows/   # deploy-static-site.yaml 等示例
 ├── tests/
-│   └── e2e/         # 端到端测试（23 用例，覆盖 exec / shell / sftp / recipe）
+│   └── e2e/         # 端到端测试（含 workflow_e2e_test.go）
 └── scripts/         # lint / race / CI 脚本
 ```
 
@@ -77,7 +81,7 @@ MOW 是一款面向**开发者与运维工程师**的跨平台运维工作台：
   - [command engine](./docs/command-engine.md) · [recipe](./docs/recipe.md) · [workflow](./docs/workflow.md)
   - [plugin system](./docs/plugin-system.md) · [ssh plugin](./docs/ssh-plugin.md) · [connection manager](./docs/connection-manager.md)
   - [permission](./docs/permission.md) · [observability](./docs/observability.md) · [ai](./docs/ai.md) · [ui](./docs/ui.md)
-  - [roadmap](./docs/roadmap.md) · [v0.1 acceptance checklist](./docs/v0.1-acceptance-checklist.md)
+  - [roadmap](./docs/roadmap.md) · [v0.1 acceptance checklist](./docs/v0.1-acceptance-checklist.md) · [v0.2 acceptance checklist](./docs/v0.2-acceptance-checklist.md)
 
 ## 快速开始
 
@@ -104,6 +108,15 @@ go run . target add my-server \  # 添加 SSH 目标
   --password mypass
 go run . ssh my-server           # 交互式 SSH Shell
 go run . run my-server uptime    # 单次执行命令
+
+# v0.2：执行一个 Workflow（YAML DSL）
+go run . workflow validate ..\..\examples\workflows\deploy-static-site.yaml
+go run . workflow run ..\..\examples\workflows\deploy-static-site.yaml `
+  --target=my-server `
+  --input site=hello `
+  --input local_dir=C:\dist `
+  --input remote_dir=/var/www/hello `
+  --input health_port=8080
 
 # 3. 启动桌面客户端
 cd ..\desktop
@@ -140,8 +153,8 @@ go test -count=1 ./...
 | 版本 | 目标 | 状态 |
 | --- | --- | --- |
 | **v0.1** | 优秀的 SSH 客户端 + Plugin Framework 雏形（不接入 AI） | ✅ 已发布 |
-| **v0.2** | Command / Recipe / Workflow Engine | 🚧 进行中 |
-| **v0.3** | Docker Plugin + Docker Dashboard | 📋 计划中 |
+| **v0.2** | Command / Recipe / Workflow Engine（YAML DSL + `${var}` 插值 + Runner） | ✅ 已发布 |
+| **v0.3** | Docker Plugin + Docker Dashboard + Workflow 增强（parallel / when / on_failure / retry / notify / rollback） | 🎯 下一版 |
 | **v0.4** | AI Plugin + Provider 抽象（含 MCP 支持） | 📋 计划中 |
 | **v0.5** | PVE / K8s / DB Plugin + Marketplace 雏形 | 📋 计划中 |
 
