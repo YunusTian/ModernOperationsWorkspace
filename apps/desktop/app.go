@@ -18,6 +18,7 @@ import (
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	coreai "github.com/mow/mow/core/ai"
 	"github.com/mow/mow/core/command"
 	"github.com/mow/mow/core/config"
 	"github.com/mow/mow/core/connection"
@@ -58,6 +59,11 @@ type App struct {
 	// AI 流式对话会话
 	aiChats sync.Map // sessionID -> *aiChatSession
 	aiN     atomic.Int64
+
+	// AI orchestrator 懒加载，仅供非流式 AIAsk 使用；流式 chat_stream 仍走 engine。
+	aiOrchOnce sync.Once
+	aiOrch     *coreai.Orchestrator
+	aiOrchErr  error
 
 	// Workflow 侧的共享注册表；惰性构造，见 workflow.go: workflowRecipes()。
 	wfMu  sync.Mutex

@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
+	coreai "github.com/mow/mow/core/ai"
 	"github.com/mow/mow/core/command"
 	"github.com/mow/mow/core/config"
 	"github.com/mow/mow/core/connection"
@@ -15,6 +17,7 @@ import (
 	"github.com/mow/mow/core/plugin"
 	"github.com/mow/mow/core/recipe"
 	"github.com/mow/mow/core/workflow/history"
+	"github.com/mow/mow/sdk"
 )
 
 // -----------------------------------------------------------------------------
@@ -32,6 +35,12 @@ type App struct {
 	Recipes *recipe.Registry
 	Runner  *recipe.Runner
 	History *history.JSONLStore
+
+	// aiOnce 保护 orchestrator 的懒加载：ensurePluginEnabled("ai") 完成后
+	// 才能装配 orchestrator（它需要向 Engine 查询工具 Spec）。
+	aiOnce sync.Once
+	aiOrch *coreai.Orchestrator
+	aiErr  error
 
 	// 已加载的插件句柄，退出时统一 Close。
 	loaded []func()
@@ -164,3 +173,46 @@ func execSuffix() string {
 	}
 	return ""
 }
+
+// -----------------------------------------------------------------------------
+// AI Orchestrator（v0.4）
+// -----------------------------------------------------------------------------
+
+// Orchestrator 懒加载 host-side AI 编排器；已存在则复用。
+//
+// 装配内容：
+//   - Runner：适配 Engine.Run + Engine.Spec 到 coreai.CommandRunner
+//   - AllowedTools：来自 Cfg.AI.AllowedTools（空则纯对话，无 tool-use）
+//   - Redactor：command.RedactParams（配合 InputSchema 的 x-mow-sensitive）
+//   - Auditor：coreai.NewSlogAuditor(a.Log)，事件写结构化日志
+//   - 各上限 / 超时：Cfg.AI.MaxXxx；0 走 core/ai 默认
+//
+// 调用方必须先 ensurePluginEnabled(ctx, "ai") 保证 ai 插件已启用。
+func (a *App) Orchestrator() (*coreai.Orchestrator, error) {
+	a.aiOnce.Do(func() {
+		a.aiOrch, a.aiErr = coreai.New(coreai.Options{
+			Runner:           engineRunner{engine: a.Engine},
+			AllowedTools:     a.Cfg.AI.AllowedTools,
+			MaxRounds:        a.Cfg.AI.MaxRounds,
+			MaxCallsPerRound: a.Cfg.AI.MaxCallsPerRound,
+			MaxTotalCalls:    a.Cfg.AI.MaxTotalCalls,
+			MaxResultBytes:   a.Cfg.AI.MaxResultBytes,
+			Timeout:          time.Duration(a.Cfg.AI.TimeoutSeconds) * time.Second,
+			Redactor:         command.RedactParams,
+			Auditor:          coreai.NewSlogAuditor(a.Log),
+		})
+	})
+	return a.aiOrch, a.aiErr
+}
+
+// engineRunner 把 *command.Engine 适配到 coreai.CommandRunner 接口。
+// core/command.Engine 天生就有 Run / Spec 两个方法，签名完全匹配，此处只做值包装。
+type engineRunner struct{ engine *command.Engine }
+
+func (e engineRunner) Run(ctx context.Context, req command.Request) (*command.Response, error) {
+	return e.engine.Run(ctx, req)
+}
+func (e engineRunner) Spec(pluginID, commandID string) (sdk.CommandSpec, error) {
+	return e.engine.Spec(pluginID, commandID)
+}
+

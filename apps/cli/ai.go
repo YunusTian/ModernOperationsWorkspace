@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	coreai "github.com/mow/mow/core/ai"
 	"github.com/mow/mow/core/command"
 	"github.com/mow/mow/sdk"
 )
@@ -171,23 +172,7 @@ func newAIProvidersCmd(h *appHolder) *cobra.Command {
 func newAIAskCmd(h *appHolder) *cobra.Command {
 	o := &aiChatOpts{}
 	cmd := &cobra.Command{Use: "ask <prompt>", Short: "Ask an AI provider", Args: cobra.ExactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
-		params, err := json.Marshal(map[string]any{"provider": o.Provider, "model": o.Model, "messages": []sdk.ChatMessage{{Role: sdk.RoleUser, Content: args[0]}}})
-		if err != nil {
-			return err
-		}
-		resp, err := runAICommand(h, "chat", params, o.Timeout)
-		if err != nil {
-			return err
-		}
-		if o.JSON {
-			return json.NewEncoder(os.Stdout).Encode(json.RawMessage(resp.Data))
-		}
-		var chat sdk.ChatResponse
-		if err = json.Unmarshal(resp.Data, &chat); err != nil {
-			return err
-		}
-		fmt.Fprintln(os.Stdout, chat.Message.Content)
-		return nil
+		return runAIAsk(h, o, args[0])
 	}}
 	f := cmd.Flags()
 	f.StringVar(&o.Provider, "provider", "", "provider name (default: first configured)")
@@ -195,6 +180,50 @@ func newAIAskCmd(h *appHolder) *cobra.Command {
 	f.DurationVar(&o.Timeout, "timeout", 0, "request timeout")
 	f.BoolVar(&o.JSON, "json", false, "print raw response JSON")
 	return cmd
+}
+
+// runAIAsk 走宿主侧 orchestrator：
+//   - Tool 目录由 Cfg.AI.AllowedTools 与 CommandSpec 自动派生
+//   - 参数 / 结果按 InputSchema 的 x-mow-sensitive 递归脱敏
+//   - 决策事件（LoopStart / RoundStart/End / ToolCall / LoopEnd）通过 SlogAuditor
+//     写入结构化日志（audit_id 与 core/command 的 AuditRecord 关联）
+//   - Ctrl+C 立刻取消上下文，orchestrator 会在超时或 provider 空闲点终止
+func runAIAsk(h *appHolder, o *aiChatOpts, prompt string) error {
+	app, err := h.Load()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	defer app.Close(ctx)
+	if err = app.ensurePluginEnabled(ctx, "ai"); err != nil {
+		return err
+	}
+	orch, err := app.Orchestrator()
+	if err != nil {
+		return fmt.Errorf("ai orchestrator: %w", err)
+	}
+	askCtx := ctx
+	cancel := func() {}
+	if o.Timeout > 0 {
+		askCtx, cancel = context.WithTimeout(ctx, o.Timeout)
+	}
+	defer cancel()
+
+	res, err := orch.Run(askCtx, coreai.Request{
+		Provider:  o.Provider,
+		Model:     o.Model,
+		Messages:  []sdk.ChatMessage{{Role: sdk.RoleUser, Content: prompt}},
+		SessionID: fmt.Sprintf("cli-ask-%d", time.Now().UnixNano()),
+	})
+	if err != nil {
+		return err
+	}
+	if o.JSON {
+		return json.NewEncoder(os.Stdout).Encode(res.Response)
+	}
+	fmt.Fprintln(os.Stdout, res.Response.Message.Content)
+	return nil
 }
 
 func runAICommand(h *appHolder, commandID string, params json.RawMessage, timeout time.Duration) (*command.Response, error) {

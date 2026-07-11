@@ -9,6 +9,7 @@ import (
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	coreai "github.com/mow/mow/core/ai"
 	"github.com/mow/mow/core/command"
 	"github.com/mow/mow/sdk"
 )
@@ -145,4 +146,87 @@ func (s *aiChatSession) Finish(v any, _ int) error {
 	defer s.mu.Unlock()
 	wailsruntime.EventsEmit(s.wailsCtx, "ai:"+s.id+":finish", v)
 	return nil
+}
+
+// -----------------------------------------------------------------------------
+// AIAsk —— 非流式一次性对话，走宿主 orchestrator
+// -----------------------------------------------------------------------------
+
+// AIAskInput 是 AIAsk 的入参。
+type AIAskInput struct {
+	Provider       string            `json:"provider"`
+	Model          string            `json:"model"`
+	Messages       []sdk.ChatMessage `json:"messages"`
+	TimeoutSeconds int               `json:"timeout_seconds"`
+}
+
+// AIAskResult 是 AIAsk 的返回：暴露给前端做用量与轮次展示。
+type AIAskResult struct {
+	Response  sdk.ChatResponse `json:"response"`
+	Rounds    int              `json:"rounds"`
+	ToolCalls int              `json:"tool_calls"`
+}
+
+// AIAsk 走 core/ai.Orchestrator：
+//   - Tool 目录、参数脱敏、决策审计全部与 CLI 一致
+//   - 前端一次性拿到 ChatResponse + 轮次统计；无需订阅事件
+//   - Ctx 支持 timeout，默认 120s
+func (a *App) AIAsk(in AIAskInput) (*AIAskResult, error) {
+	if len(in.Messages) == 0 {
+		return nil, fmt.Errorf("messages must be non-empty")
+	}
+	root := a.wailsCtx()
+	if err := a.ensurePlugin(root, "ai"); err != nil {
+		return nil, err
+	}
+	orch, err := a.Orchestrator()
+	if err != nil {
+		return nil, fmt.Errorf("ai orchestrator: %w", err)
+	}
+	ctx := root
+	cancel := func() {}
+	if in.TimeoutSeconds > 0 {
+		ctx, cancel = context.WithTimeout(root, time.Duration(in.TimeoutSeconds)*time.Second)
+	}
+	defer cancel()
+	sid := fmt.Sprintf("ask-%d", a.aiN.Add(1))
+	res, err := orch.Run(ctx, coreai.Request{
+		Provider:  in.Provider,
+		Model:     in.Model,
+		Messages:  in.Messages,
+		SessionID: sid,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &AIAskResult{Response: res.Response, Rounds: res.Rounds, ToolCalls: res.ToolCalls}, nil
+}
+
+// Orchestrator 懒加载 host-side AI 编排器（复用 command.Engine）。
+// 装配 SlogAuditor + command.RedactParams + Cfg.AI.AllowedTools 与各上限。
+func (a *App) Orchestrator() (*coreai.Orchestrator, error) {
+	a.aiOrchOnce.Do(func() {
+		a.aiOrch, a.aiOrchErr = coreai.New(coreai.Options{
+			Runner:           desktopEngineRunner{engine: a.engine},
+			AllowedTools:     a.cfg.AI.AllowedTools,
+			MaxRounds:        a.cfg.AI.MaxRounds,
+			MaxCallsPerRound: a.cfg.AI.MaxCallsPerRound,
+			MaxTotalCalls:    a.cfg.AI.MaxTotalCalls,
+			MaxResultBytes:   a.cfg.AI.MaxResultBytes,
+			Timeout:          time.Duration(a.cfg.AI.TimeoutSeconds) * time.Second,
+			Redactor:         command.RedactParams,
+			Auditor:          coreai.NewSlogAuditor(a.log),
+		})
+	})
+	return a.aiOrch, a.aiOrchErr
+}
+
+// desktopEngineRunner 把 *command.Engine 适配到 coreai.CommandRunner。
+type desktopEngineRunner struct{ engine *command.Engine }
+
+func (e desktopEngineRunner) Run(ctx context.Context, req command.Request) (*command.Response, error) {
+	return e.engine.Run(ctx, req)
+}
+func (e desktopEngineRunner) Spec(pluginID, commandID string) (sdk.CommandSpec, error) {
+	return e.engine.Spec(pluginID, commandID)
 }

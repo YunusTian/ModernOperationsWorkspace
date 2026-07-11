@@ -22,8 +22,33 @@ type Config struct {
 	// Logger 日志配置（对齐 core/logger.Options 的公开字段）
 	Logger LoggerConfig `json:"logger"`
 
+	// AI 是宿主侧 AI orchestrator 的可选配置（v0.4）。
+	// 与 plugins.ai.settings 是两码事：这里只描述宿主如何编排（allowlist / 上限），
+	// provider 私有配置仍走 plugins.ai.settings.providers[]。
+	AI AIConfig `json:"ai"`
+
 	// Plugins 插件的 Enable / 设置
 	Plugins map[string]PluginConfig `json:"plugins"`
+}
+
+// AIConfig 是宿主侧 AI orchestrator 的可选配置。
+//
+// 全部字段为可选：留空即使用 core/ai 的安全默认（见 ai.Options 注释）。
+// 特别地，AllowedTools 为空 → 模型看不到任何工具，等价于「纯对话模式」，
+// 这是 v0.4 的推荐初始状态：用户显式列出白名单后才开放 tool-use。
+type AIConfig struct {
+	// AllowedTools 是 orchestrator 允许模型调用的 Command 全限定 ID 列表
+	// （例："system.cpu"、"docker.list"）。Orchestrator 会在初始化时逐一
+	// 校验其为 PermRead / 非流式 / 非 ai.*，否则拒绝构造。
+	AllowedTools []string `json:"allowed_tools,omitempty"`
+
+	// MaxRounds / MaxCallsPerRound / MaxTotalCalls / MaxResultBytes / TimeoutSeconds
+	// 全部为 0 → 走 orchestrator 默认（8 / 4 / MaxRounds*MaxCallsPerRound / 64KiB / 120s）。
+	MaxRounds        int `json:"max_rounds,omitempty"`
+	MaxCallsPerRound int `json:"max_calls_per_round,omitempty"`
+	MaxTotalCalls    int `json:"max_total_calls,omitempty"`
+	MaxResultBytes   int `json:"max_result_bytes,omitempty"`
+	TimeoutSeconds   int `json:"timeout_seconds,omitempty"`
 }
 
 // AppConfig 是 App 全局设置。
