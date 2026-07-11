@@ -75,6 +75,13 @@ export type AIProviderVM = {
 export type AIMessage = { role: "system" | "user" | "assistant" | "tool"; content?: string; tool_call_id?: string };
 export type AIChatOpenInput = { provider?: string; model?: string; messages: AIMessage[]; timeout_seconds?: number };
 
+// AIAskInput / AIAskResult 对应桌面后端的 App.AIAsk：走宿主 orchestrator，
+// 一次性返回 ChatResponse + Rounds + ToolCalls（供 usage 徐章展示）。
+export type AIAskInput = { provider?: string; model?: string; messages: AIMessage[]; timeout_seconds?: number };
+export type AIUsage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+export type AIChatResponse = { message: AIMessage; usage?: AIUsage; finish_reason?: string };
+export type AIAskResult = { response: AIChatResponse; rounds: number; tool_calls: number };
+
 // -----------------------------------------------------------------------------
 // Workflow
 // -----------------------------------------------------------------------------
@@ -384,6 +391,7 @@ export const App = {
   AIChatOpen: (in_: AIChatOpenInput) => call<string>("AIChatOpen", in_),
   AIChatStart: (sessionID: string) => call<void>("AIChatStart", sessionID),
   AIChatClose: (sessionID: string) => call<void>("AIChatClose", sessionID),
+  AIAsk: (in_: AIAskInput) => call<AIAskResult>("AIAsk", in_),
 
   WorkflowValidate: (yamlText: string) =>
     call<WorkflowValidateResult>("WorkflowValidate", yamlText),

@@ -777,3 +777,6 @@ body,
 .ai-compose textarea { flex: 1; min-height: 58px; resize: vertical; color: #eee; background: #222; border: 1px solid #444; border-radius: 7px; padding: 9px 11px; }
 .ai-compose button { width: 76px; border: 0; border-radius: 6px; color: white; background: #0e639c; cursor: pointer; }
 .ai-compose button:disabled { opacity: .5; cursor: default; }
+.ai-usage { display: flex; gap: 6px; align-items: center; margin-left: 8px; }
+.ai-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #2a2a2a; color: #ccc; border: 1px solid #3f3f3f; font-size: 11px; letter-spacing: .02em; }
+.ai-badge-finish { background: #1c3a1c; border-color: #315a31; color: #b6e2b6; }
