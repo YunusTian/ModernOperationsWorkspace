@@ -1,0 +1,49 @@
+{
+  "manifestVersion": 1,
+  "id": "ai",
+  "name": "AI",
+  "version": "0.4.1",
+  "author": "mow",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/YunusTian/ModernOperationsWorkspace",
+  "description": "AI Provider abstraction (chat, streaming chat, tool-use)",
+  "compatibility": {
+    "core": ">=0.4.0,<0.6.0",
+    "sdk": ">=0.4.0,<0.6.0"
+  },
+  "platforms": [
+    {"os": "linux",   "arch": "amd64", "entrypoint": "bin/mow-ai-plugin",     "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "linux",   "arch": "arm64", "entrypoint": "bin/mow-ai-plugin",     "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "darwin",  "arch": "amd64", "entrypoint": "bin/mow-ai-plugin",     "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "darwin",  "arch": "arm64", "entrypoint": "bin/mow-ai-plugin",     "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "windows", "arch": "amd64", "entrypoint": "bin/mow-ai-plugin.exe", "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+  ],
+  "permissions": ["read", "execute"],
+  "commands": [
+    {"id": "list_providers", "permission": "read",    "description": "list configured AI providers"},
+    {"id": "chat",           "permission": "read",    "description": "one-shot chat completion"},
+    {"id": "chat_stream",    "permission": "execute", "streaming": true, "description": "streaming chat (tool-use loop by host orchestrator)"}
+  ],
+  "settingsSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "providers": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["kind"],
+          "properties": {
+            "name": {"type": "string"},
+            "kind": {"type": "string", "enum": ["mock", "openai", "openai-compatible"]},
+            "options": {"type": "object"}
+          }
+        }
+      }
+    }
+  },
+  "source": {
+    "url": "https://github.com/YunusTian/ModernOperationsWorkspace"
+  }
+}

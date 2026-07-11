@@ -1,0 +1,34 @@
+{
+  "manifestVersion": 1,
+  "id": "ssh",
+  "name": "SSH",
+  "version": "0.4.1",
+  "author": "mow",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/YunusTian/ModernOperationsWorkspace",
+  "description": "SSH remote execution, interactive shell, and SFTP file transfer",
+  "compatibility": {
+    "core": ">=0.4.0,<0.6.0",
+    "sdk": ">=0.4.0,<0.6.0"
+  },
+  "platforms": [
+    {"os": "linux",   "arch": "amd64", "entrypoint": "bin/mow-ssh-plugin",       "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "linux",   "arch": "arm64", "entrypoint": "bin/mow-ssh-plugin",       "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "darwin",  "arch": "amd64", "entrypoint": "bin/mow-ssh-plugin",       "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "darwin",  "arch": "arm64", "entrypoint": "bin/mow-ssh-plugin",       "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "windows", "arch": "amd64", "entrypoint": "bin/mow-ssh-plugin.exe",   "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+  ],
+  "connectionTypes": ["ssh"],
+  "permissions": ["read", "write", "execute"],
+  "commands": [
+    {"id": "ping",          "permission": "read",    "description": "grpcbridge sanity check"},
+    {"id": "exec",          "permission": "execute", "description": "run a one-shot command via SSH"},
+    {"id": "shell",         "permission": "execute", "streaming": true, "description": "interactive PTY shell over SSH"},
+    {"id": "sftp.list",     "permission": "read",    "description": "list a remote directory via SFTP"},
+    {"id": "sftp.upload",   "permission": "write",   "streaming": true, "description": "upload a file via SFTP"},
+    {"id": "sftp.download", "permission": "read",    "streaming": true, "description": "download a file via SFTP"}
+  ],
+  "source": {
+    "url": "https://github.com/YunusTian/ModernOperationsWorkspace"
+  }
+}

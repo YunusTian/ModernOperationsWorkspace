@@ -36,7 +36,7 @@ func (p *DockerPlugin) Metadata() sdk.Metadata {
 		Version:         version.Version,
 		Author:          "mow",
 		Description:     "Docker container lifecycle and log streaming",
-		CoreVersion:     ">=0.4.0,<0.5.0",
+		CoreVersion:     ">=0.4.0,<0.6.0",
 		ConnectionTypes: []string{"docker"},
 	}
 }

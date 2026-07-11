@@ -37,7 +37,7 @@ func (p *SSHPlugin) Metadata() sdk.Metadata {
 		Version:         version.Version,
 		Author:          "mow",
 		Description:     "SSH remote execution, interactive shell, and SFTP file transfer",
-		CoreVersion:     ">=0.4.0,<0.5.0",
+		CoreVersion:     ">=0.4.0,<0.6.0",
 		ConnectionTypes: []string{"ssh"},
 	}
 }

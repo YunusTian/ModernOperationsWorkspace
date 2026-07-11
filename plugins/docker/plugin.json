@@ -1,0 +1,41 @@
+{
+  "manifestVersion": 1,
+  "id": "docker",
+  "name": "Docker",
+  "version": "0.4.1",
+  "author": "mow",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/YunusTian/ModernOperationsWorkspace",
+  "description": "Docker container lifecycle, log streaming, image push/pull and interactive exec",
+  "compatibility": {
+    "core": ">=0.4.0,<0.6.0",
+    "sdk": ">=0.4.0,<0.6.0"
+  },
+  "platforms": [
+    {"os": "linux",   "arch": "amd64", "entrypoint": "bin/mow-docker-plugin",     "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "linux",   "arch": "arm64", "entrypoint": "bin/mow-docker-plugin",     "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "darwin",  "arch": "amd64", "entrypoint": "bin/mow-docker-plugin",     "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "darwin",  "arch": "arm64", "entrypoint": "bin/mow-docker-plugin",     "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "windows", "arch": "amd64", "entrypoint": "bin/mow-docker-plugin.exe", "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+  ],
+  "connectionTypes": ["docker"],
+  "permissions": ["read", "write", "execute", "dangerous"],
+  "commands": [
+    {"id": "list",     "permission": "read",      "description": "list containers"},
+    {"id": "inspect",  "permission": "read",      "description": "inspect a container"},
+    {"id": "start",    "permission": "execute",   "description": "start a container"},
+    {"id": "stop",     "permission": "execute",   "description": "stop a container"},
+    {"id": "restart",  "permission": "execute",   "description": "restart a container"},
+    {"id": "logs",     "permission": "read",      "streaming": true, "description": "stream container logs"},
+    {"id": "rm",       "permission": "dangerous", "description": "remove a container (requires Confirmed=true)"},
+    {"id": "pull",     "permission": "execute",   "streaming": true, "description": "pull an image (streams progress)"},
+    {"id": "push",     "permission": "execute",   "streaming": true, "description": "push an image (streams progress)"},
+    {"id": "exec",     "permission": "execute",   "streaming": true, "description": "interactive exec on a container"},
+    {"id": "images",   "permission": "read",      "description": "list images"},
+    {"id": "volumes",  "permission": "read",      "description": "list volumes"},
+    {"id": "networks", "permission": "read",      "description": "list networks"}
+  ],
+  "source": {
+    "url": "https://github.com/YunusTian/ModernOperationsWorkspace"
+  }
+}
