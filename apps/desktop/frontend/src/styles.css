@@ -780,3 +780,10 @@ body,
 .ai-usage { display: flex; gap: 6px; align-items: center; margin-left: 8px; }
 .ai-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #2a2a2a; color: #ccc; border: 1px solid #3f3f3f; font-size: 11px; letter-spacing: .02em; }
 .ai-badge-finish { background: #1c3a1c; border-color: #315a31; color: #b6e2b6; }
+.ai-config-alert { margin: 8px; padding: 10px 12px; border-radius: 8px; background: #3a1a1a; border: 1px solid #6a2a2a; color: #f5c8c8; font-size: 13px; line-height: 1.5; }
+.ai-config-alert pre { margin-top: 6px; padding: 6px 8px; background: #1e0e0e; border-radius: 4px; color: #f2a1a1; overflow-x: auto; font-size: 12px; }
+.ai-config-alert code { background: rgba(255,255,255,.08); padding: 1px 4px; border-radius: 3px; }
+.ai-config-note { margin: 8px; padding: 8px 12px; border-radius: 8px; background: #23231b; border: 1px solid #55522e; color: #d8d3a5; font-size: 12px; }
+.ai-config-note code { background: rgba(255,255,255,.06); padding: 1px 4px; border-radius: 3px; }
+.ai-retry { margin-left: 8px; padding: 2px 10px; border: 1px solid #6a2a2a; background: #3a1a1a; color: #f5c8c8; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.ai-retry:hover { background: #4a1f1f; }

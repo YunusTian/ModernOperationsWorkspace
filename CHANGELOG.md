@@ -7,6 +7,46 @@
 
 ## [Unreleased]
 
+### v0.4.0 AI 可用闭环（发布候选）
+
+- **OpenAI-compatible Provider**（[plugins/ai/openai.go](./plugins/ai/openai.go)）
+  - `base_url` / `api_key_env` / 默认模型 / 自定义请求头；一次性 + 流式 Chat；tool_calls 支持
+  - 尊重 `context.Cancel` / `context.Timeout`；401/403/400 直接失败，429/5xx 映射为稳定错误码
+  - **有上限退避重试**（`retryPolicy`）：默认 3 次，Base=500ms → 1s → Cap=5s，仅对 `sdk.Error.Retryable=true` 生效；sleep 期间尊重 ctx 取消
+  - 配置项：`retry_max_attempts` / `retry_base_backoff_ms` / `retry_max_backoff_ms`
+  - 假 HTTP Server 契约测试，不依赖公网密钥
+- **宿主 AI Orchestrator**（[core/ai/](./core/ai/)）—— host-side tool-use 闭环
+  - `Orchestrator`：多轮 chat + tool_call 编排；并发安全；无状态
+  - **Tool 目录自动派生**（P0-1）：`buildToolSpec` 从 `CommandSpec` 派生，非 allowlist / 非 Read / Streaming / `ai.*` 递归 / 缺 InputSchema 均在构造期拒收；模型无法声明宿主未认可的工具
+  - **五道护栏**（P0-2）：`MaxRounds`（默 8）/ `MaxCallsPerRound`（默 4）/ `MaxTotalCalls`（默 16）/ `MaxResultBytes`（默 64 KiB）/ `Timeout`（默 120s），触发即返回 `*ai.Error` 稳定错误码
+  - **结果截断标记**：超限时改为 `...[truncated]`，模型可据此识别
+  - **role=tool 消息**携带 `sdk.Error.Code`，让模型据错重规划
+- **参数递归脱敏**（P0-3，[core/command/redact.go](./core/command/redact.go)）
+  - 从「顶层字段」升级为递归实现：嵌套 object / array items / 整颗 object 标 sensitive 全支持
+  - Orchestrator 在追加到对话历史前对 `tool_call.Args` 做副本脱敏，**原始 Args 仍传给 Command Engine**（真实调用不受影响）
+- **完整决策链路审计**（[core/ai/audit.go](./core/ai/audit.go)）
+  - `Auditor` 接口 + 5 类事件：`ai.loop.start` / `ai.round.start` / `ai.round.end` / `ai.tool.call` / `ai.loop.end`
+  - 保证「无论正常结束 / 拒收 / 超限 / provider 报错，`LoopEnd` 恰好发一次」，`FinishReason` 携带稳定错误码
+  - 事件字段：`session_id` / `round` / `parent_audit_id` / `audit_id` / `tool_name` / `duration_ms` / `result_bytes` / `truncated` / `error_code` / `args_digest`（经 Redactor 脱敏）
+  - 内置 `SlogAuditor`：Rejected/AI_* → WARN；其他 → INFO；产出可被 OTLP/SQLite handler 复用
+  - `emit` 用 `recover` 兜住 auditor panic，绝不影响主流程
+- **AI 配置双端共用**（[core/config/config.go](./core/config/config.go)）
+  - 新增 `Config.AI` = `AIConfig`：`allowed_tools[]` + `max_rounds` / `max_calls_per_round` / `max_total_calls` / `max_result_bytes` / `timeout_seconds`
+  - 默认 `allowed_tools` 为空 → 纯对话模式（v0.4 最保守初值）
+- **CLI 接入**（[apps/cli/app.go](./apps/cli/app.go) + [apps/cli/ai.go](./apps/cli/ai.go)）
+  - `App.Orchestrator()` 懒加载工厂，`sync.Once` 记忆化
+  - **`mow ai ask` 改走 orchestrator**：自动携带 `SlogAuditor` + `command.RedactParams` + 上限护栏
+  - `--json` 输出改为完整 `ChatResponse`（含 usage / finish_reason）
+- **Desktop 接入**（[apps/desktop/ai.go](./apps/desktop/ai.go) + [apps/desktop/frontend/src/pages/AIPage.tsx](./apps/desktop/frontend/src/pages/AIPage.tsx)）
+  - 新增 `App.AIAsk(AIAskInput) → AIAskResult`：非流式一次性对话，返回 `Response + Rounds + ToolCalls`
+  - 前端 Ask 按钮走 `AIAsk`；`UsageBadges` 显示 `rounds:` / `tools:` / `tokens:` / `finish_reason` 四个 pill 徽章
+  - Send（流式）与 Ask（orchestrator）共用 usage state，Send 路径由 `ai:<sid>:finish` 事件回填 tokens + finish
+- **测试与覆盖率**
+  - `core/ai`：**31 个测试，85.0% 覆盖率**（含审计事件序列、拒收分支、Slog 级别、panic 安全）
+  - `core/command`：71.3% 覆盖率（递归脱敏 + 4 个新用例）
+  - `plugins/ai`：72.3% 覆盖率（含 5 个 retry 用例）
+  - Desktop 前端：`AIPage.test.tsx` 从 1 → 3 个测试，覆盖 Send/Ask/error 三条路径与 4 徽章展示
+
 ### v0.4.0 AI Plugin 骨架
 
 - **`sdk/ai.go`**（新增，[sdk/ai.go](./sdk/ai.go)）：定义 AI Provider 抽象

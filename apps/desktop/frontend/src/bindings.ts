@@ -82,6 +82,10 @@ export type AIUsage = { prompt_tokens?: number; completion_tokens?: number; tota
 export type AIChatResponse = { message: AIMessage; usage?: AIUsage; finish_reason?: string };
 export type AIAskResult = { response: AIChatResponse; rounds: number; tool_calls: number };
 
+// AIStatus 反映桌面后端 App.AIStatus 的返回：Cfg.AI.AllowedTools 是否顺利
+// 通过 orchestrator 构造。config_error 非空 → UI 展示红色横幅提示配置有问题。
+export type AIStatus = { tool_count: number; tools: string[]; config_error?: string };
+
 // -----------------------------------------------------------------------------
 // Workflow
 // -----------------------------------------------------------------------------
@@ -392,6 +396,7 @@ export const App = {
   AIChatStart: (sessionID: string) => call<void>("AIChatStart", sessionID),
   AIChatClose: (sessionID: string) => call<void>("AIChatClose", sessionID),
   AIAsk: (in_: AIAskInput) => call<AIAskResult>("AIAsk", in_),
+  AIStatus: () => call<AIStatus>("AIStatus"),
 
   WorkflowValidate: (yamlText: string) =>
     call<WorkflowValidateResult>("WorkflowValidate", yamlText),

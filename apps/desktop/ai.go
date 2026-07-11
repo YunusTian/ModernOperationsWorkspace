@@ -152,6 +152,31 @@ func (s *aiChatSession) Finish(v any, _ int) error {
 // AIAsk —— 非流式一次性对话，走宿主 orchestrator
 // -----------------------------------------------------------------------------
 
+// AIStatus 描述 host-side AI 编排器的健康状态，供 UI 在加载时展示配置问题。
+// 若 ConfigError 非空说明 Cfg.AI.AllowedTools 里有工具被 orchestrator 拒收
+// （常见原因：Dangerous / Streaming / 非 Read / ai.* 递归 / 未知命令）。
+// 这条信息让 UI 可以在启动时用一条明显的横幅告诉用户"AI tool-use 未启用"，
+// 而不是等第一次 Ask 时才失败。
+type AIStatus struct {
+	ToolCount   int      `json:"tool_count"`
+	Tools       []string `json:"tools"`
+	ConfigError string   `json:"config_error,omitempty"`
+}
+
+// AIStatus 返回宿主 orchestrator 状态。UI 展示用；不会真正调用 provider。
+func (a *App) AIStatus() AIStatus {
+	orch, err := a.Orchestrator()
+	if err != nil {
+		return AIStatus{ConfigError: err.Error()}
+	}
+	specs := orch.Tools()
+	names := make([]string, 0, len(specs))
+	for _, s := range specs {
+		names = append(names, s.Name)
+	}
+	return AIStatus{ToolCount: len(names), Tools: names}
+}
+
 // AIAskInput 是 AIAsk 的入参。
 type AIAskInput struct {
 	Provider       string            `json:"provider"`

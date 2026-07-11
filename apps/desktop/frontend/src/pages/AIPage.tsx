@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { AIAskResult, AIMessage, AIProviderVM, App, eventsOn } from "../bindings";
+import { AIAskResult, AIMessage, AIProviderVM, AIStatus, App, eventsOn } from "../bindings";
 
 // UsageStats 汇总最近一次 Ask 或 Chat 完成时的用量指标，供徐章展示。
 type UsageStats = {
@@ -19,6 +19,9 @@ export default function AIPage() {
   const [error, setError] = useState("");
   const [tool, setTool] = useState("");
   const [usage, setUsage] = useState<UsageStats>({});
+  const [status, setStatus] = useState<AIStatus | null>(null);
+  // lastUser 记录最后一次成功发送的用户消息，供 Retry 使用。
+  const [lastUser, setLastUser] = useState("");
   const session = useRef("");
   const off = useRef<(() => void)[]>([]);
 
@@ -32,6 +35,8 @@ export default function AIPage() {
         }
       })
       .catch((e) => setError(String(e)));
+    // AIStatus 只影响顶部横幅，失败不阻塞对话入口。
+    App.AIStatus().then(setStatus).catch(() => setStatus(null));
     return () => {
       off.current.forEach((f) => f());
       if (session.current) void App.AIChatClose(session.current);
@@ -49,6 +54,7 @@ export default function AIPage() {
     setError("");
     setTool("");
     setUsage({});
+    setLastUser(text);
     const next = [...messages, { role: "user", content: text } as AIMessage];
     setMessages([...next, { role: "assistant", content: "" }]);
     setBusy(true);
@@ -94,13 +100,14 @@ export default function AIPage() {
   // ask 走宿主 orchestrator（非流式）：一次性拿到 Rounds / ToolCalls / Usage，
   // 决策链路已由 SlogAuditor 落审计日志。适合明确的一次性问答，也用于 v0.4
   // 验收清单中的 usage 展示。
-  async function ask() {
-    const text = input.trim();
+  async function ask(prompt?: string) {
+    const text = (prompt ?? input).trim();
     if (!text || busy) return;
-    setInput("");
+    if (!prompt) setInput("");
     setError("");
     setTool("");
     setUsage({});
+    setLastUser(text);
     const next = [...messages, { role: "user", content: text } as AIMessage];
     setMessages([...next, { role: "assistant", content: "" }]);
     setBusy(true);
@@ -154,6 +161,21 @@ export default function AIPage() {
         <UsageBadges usage={usage} />
       </header>
       <div className="ai-messages">
+        {status?.config_error && (
+          <div className="ai-config-alert" role="alert">
+            <b>AI tool-use disabled.</b> The orchestrator rejected your{" "}
+            <code>allowed_tools</code> configuration. Please fix it in{" "}
+            <code>config.json</code> — only Read-only, non-streaming, non-<code>ai.*</code>{" "}
+            commands are eligible.
+            <pre>{status.config_error}</pre>
+          </div>
+        )}
+        {status && !status.config_error && status.tool_count === 0 && (
+          <div className="ai-config-note" role="note">
+            AI runs in <b>chat-only</b> mode. Add commands to{" "}
+            <code>ai.allowed_tools</code> to enable tool-use.
+          </div>
+        )}
         {messages.length === 0 && (
           <div className="ai-empty">
             Ask about your infrastructure. AI remains behind the same Command Engine permissions.
@@ -171,7 +193,21 @@ export default function AIPage() {
             <pre>{tool}</pre>
           </details>
         )}
-        {error && <div className="ai-error">{error}</div>}
+        {error && (
+          <div className="ai-error">
+            {error}
+            {lastUser && !busy && (
+              <button
+                type="button"
+                className="ai-retry"
+                onClick={() => ask(lastUser)}
+                title="Re-run the last user message via orchestrator"
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        )}
       </div>
       <form className="ai-compose" onSubmit={send}>
         <textarea
@@ -186,7 +222,7 @@ export default function AIPage() {
           </button>
         ) : (
           <>
-            <button type="button" onClick={ask} disabled={!provider} title="One-shot via orchestrator (audited)">
+            <button type="button" onClick={() => ask()} disabled={!provider} title="One-shot via orchestrator (audited)">
               Ask
             </button>
             <button type="submit" disabled={!provider}>

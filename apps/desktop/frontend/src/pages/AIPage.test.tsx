@@ -9,6 +9,7 @@ const { callbacks, api } = vi.hoisted(() => ({
     AIChatStart: vi.fn(),
     AIChatClose: vi.fn(),
     AIAsk: vi.fn(),
+    AIStatus: vi.fn(),
   },
 }));
 vi.mock("../bindings", () => ({
@@ -44,6 +45,7 @@ describe("AIPage", () => {
       rounds: 2,
       tool_calls: 1,
     });
+    api.AIStatus.mockResolvedValue({ tool_count: 0, tools: [] });
   });
 
   it("loads providers and streams a response after subscriptions are ready", async () => {
@@ -94,5 +96,36 @@ describe("AIPage", () => {
     fireEvent.change(screen.getByPlaceholderText("Ask MOW…"), { target: { value: "loop" } });
     fireEvent.click(screen.getByRole("button", { name: "Ask" }));
     expect(await screen.findByText(/AI_MAX_ROUNDS/)).toBeInTheDocument();
+  });
+
+  it("renders config alert banner when AIStatus reports a config error", async () => {
+    api.AIStatus.mockResolvedValueOnce({
+      tool_count: 0,
+      tools: [],
+      config_error: "AI_TOOL_NOT_READABLE: tool \"docker.rm\" is not read-only",
+    });
+    render(<AIPage />);
+    expect(await screen.findByText(/AI tool-use disabled/)).toBeInTheDocument();
+    expect(screen.getByText(/AI_TOOL_NOT_READABLE/)).toBeInTheDocument();
+  });
+
+  it("retry button replays the last user message via AIAsk", async () => {
+    api.AIAsk.mockRejectedValueOnce(new Error("AI_MAX_ROUNDS"));
+    render(<AIPage />);
+    await screen.findByDisplayValue("model-a");
+    fireEvent.change(screen.getByPlaceholderText("Ask MOW…"), { target: { value: "check cpu" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    expect(await screen.findByText(/AI_MAX_ROUNDS/)).toBeInTheDocument();
+    // Retry 按钮出现后点击 → 使用 lastUser 再次调用 AIAsk（成功返回默认 mock）
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    api.AIAsk.mockClear();
+    fireEvent.click(retry);
+    await waitFor(() =>
+      expect(api.AIAsk).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: expect.arrayContaining([{ role: "user", content: "check cpu" }]),
+        }),
+      ),
+    );
   });
 });
