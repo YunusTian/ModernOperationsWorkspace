@@ -39,6 +39,11 @@ type PooledClient struct {
 	closed   bool
 }
 
+type pendingDial struct {
+	done chan struct{}
+	err  error
+}
+
 // SessionPoolOptions 是 SessionPool 的构造参数。
 type SessionPoolOptions struct {
 	// DialTimeout 是 TCP + SSH 握手的最大耗时。默认 15s。
@@ -59,6 +64,7 @@ type SessionPool struct {
 
 	mu      sync.Mutex
 	clients map[string]*PooledClient
+	dialing map[string]*pendingDial
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -78,6 +84,7 @@ func NewSessionPool(opts SessionPoolOptions) *SessionPool {
 	p := &SessionPool{
 		opts:    opts,
 		clients: map[string]*PooledClient{},
+		dialing: map[string]*pendingDial{},
 		stopCh:  make(chan struct{}),
 	}
 	p.wg.Add(1)
@@ -118,15 +125,44 @@ func (p *SessionPool) Acquire(ctx context.Context, dt *dialTarget) (*ssh.Client,
 		p.mu.Unlock()
 		return pc.Client, key, nil
 	}
+	if pending, ok := p.dialing[key]; ok {
+		p.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return nil, key, ctx.Err()
+		case <-pending.done:
+		}
+
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if pending.err != nil {
+			return nil, key, pending.err
+		}
+		pc, ok := p.clients[key]
+		if !ok || pc.closed {
+			return nil, key, errors.New("ssh: pooled client unavailable after dial")
+		}
+		pc.refs++
+		pc.lastUsed = time.Now()
+		return pc.Client, key, nil
+	}
+	pending := &pendingDial{done: make(chan struct{})}
+	p.dialing[key] = pending
 	p.mu.Unlock()
 
 	client, err := p.dial(ctx, dt)
 	if err != nil {
+		p.mu.Lock()
+		delete(p.dialing, key)
+		pending.err = err
+		close(pending.done)
+		p.mu.Unlock()
 		return nil, key, err
 	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	delete(p.dialing, key)
 	// 竞争窗口：并发下可能已被另一个 Acquire 建好。
 	if pc, ok := p.clients[key]; ok && !pc.closed {
 		if client != nil {
@@ -142,6 +178,7 @@ func (p *SessionPool) Acquire(ctx context.Context, dt *dialTarget) (*ssh.Client,
 		refs:     1,
 		lastUsed: time.Now(),
 	}
+	close(pending.done)
 	return client, key, nil
 }
 
