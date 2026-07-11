@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mow.dev/schemas/plugin.schema.json",
+  "title": "MOW Plugin Manifest",
+  "description": "Manifest schema for a MOW plugin package (plugin.json). Introduced in v0.5.0.",
+  "type": "object",
+  "required": [
+    "manifestVersion",
+    "id",
+    "name",
+    "version",
+    "compatibility",
+    "platforms"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "manifestVersion": {
+      "description": "Schema version of this manifest. Only value 1 is defined in v0.5.0.",
+      "type": "integer",
+      "const": 1
+    },
+    "id": {
+      "description": "Globally unique plugin identifier. Must match sdk.Metadata.ID at runtime.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{1,63}$"
+    },
+    "name": {
+      "description": "Human-readable plugin name shown in UI.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "version": {
+      "description": "Plugin version in semver form (e.g. 0.4.1 or 1.2.3-beta.1). Must match sdk.Metadata.Version at runtime.",
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "author": { "type": "string", "maxLength": 256 },
+    "license": { "type": "string", "maxLength": 128 },
+    "homepage": { "type": "string", "format": "uri", "maxLength": 512 },
+    "description": { "type": "string", "maxLength": 1024 },
+    "compatibility": {
+      "type": "object",
+      "required": ["core"],
+      "additionalProperties": false,
+      "properties": {
+        "core": {
+          "description": "Semver constraint against MOW Core version, e.g. '>=0.5.0,<0.6.0'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "sdk": {
+          "description": "Semver constraint against sdk/version.Version.",
+          "type": "string"
+        },
+        "protocol": {
+          "description": "Semver constraint against Plugin gRPC protocol version.",
+          "type": "string"
+        }
+      }
+    },
+    "platforms": {
+      "description": "Concrete binary entrypoints for supported (os, arch) pairs.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["os", "arch", "entrypoint", "checksum"],
+        "additionalProperties": false,
+        "properties": {
+          "os": {
+            "type": "string",
+            "enum": ["linux", "darwin", "windows"]
+          },
+          "arch": {
+            "type": "string",
+            "enum": ["amd64", "arm64"]
+          },
+          "entrypoint": {
+            "description": "Path to the executable relative to the plugin package root.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "checksum": {
+            "description": "SHA-256 checksum of the entrypoint binary, lowercase hex.",
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "connectionTypes": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$" },
+      "uniqueItems": true
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["read", "write", "execute", "dangerous"]
+      },
+      "uniqueItems": true
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "permission"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.-]{0,127}$"
+          },
+          "permission": {
+            "type": "string",
+            "enum": ["read", "write", "execute", "dangerous"]
+          },
+          "streaming": { "type": "boolean" },
+          "description": { "type": "string", "maxLength": 512 }
+        }
+      }
+    },
+    "settingsSchema": {
+      "description": "Nested JSON Schema describing the plugin's user-facing settings. Only its wellformedness is validated in v0.5.0; UI rendering is v0.5.2.",
+      "type": "object"
+    },
+    "recipes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "path"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,127}$" },
+          "path": { "type": "string", "minLength": 1, "maxLength": 512 }
+        }
+      }
+    },
+    "workflows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "path"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,127}$" },
+          "path": { "type": "string", "minLength": 1, "maxLength": 512 }
+        }
+      }
+    },
+    "dataVersion": {
+      "description": "Plugin's persistent data schema version. Increment when adding a migration.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "migrations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to"],
+        "additionalProperties": false,
+        "properties": {
+          "from": { "type": "integer", "minimum": 0 },
+          "to": { "type": "integer", "minimum": 1 },
+          "entrypoint": { "type": "string" }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": { "type": "string", "format": "uri" },
+        "tag": { "type": "string" }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "required": ["algorithm", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": { "type": "string", "enum": ["sigstore", "minisign"] },
+        "value": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
