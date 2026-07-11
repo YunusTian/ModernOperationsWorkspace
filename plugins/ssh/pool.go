@@ -318,6 +318,8 @@ func buildAuthMethods(c *sshCredentials) ([]ssh.AuthMethod, error) {
 		if sock == "" {
 			return nil, errors.New("ssh: SSH_AUTH_SOCK not set for agent auth")
 		}
+		// #nosec G704 -- the local agent socket path is an explicit user/runtime
+		// selection and net.Dial is intentionally limited to the unix network.
 		conn, err := net.Dial("unix", sock)
 		if err != nil {
 			return nil, fmt.Errorf("ssh: dial agent: %w", err)
@@ -339,7 +341,7 @@ func buildHostKeyCallback(c *sshCredentials) (ssh.HostKeyCallback, error) {
 	case "insecure-ignore":
 		// 显式选择的 opt-in 模式；供受控测试环境或用户明确豁免使用。
 		// gosec 会报 G106，但这里的语义是"用户显式承担该风险"。
-		return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec // G106: opt-in insecure mode
+		return ssh.InsecureIgnoreHostKey(), nil // #nosec G106 -- explicit opt-in insecure mode
 
 	case "strict":
 		if c.KnownHostsPath == "" {

@@ -16,6 +16,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -172,6 +173,9 @@ func TestDockerE2E_Pull(t *testing.T) {
 		Caller:    sdk.Caller{Type: sdk.CallerCLI, User: "e2e"},
 	}, stream)
 	if err != nil {
+		if isTransientRegistryError(err) {
+			t.Skipf("docker registry temporarily unavailable: %v", err)
+		}
 		t.Fatalf("docker.pull stream: %v", err)
 	}
 	// 至少应有 1 条 progress event（不同 daemon / cache 状态下条数不定，
@@ -179,6 +183,19 @@ func TestDockerE2E_Pull(t *testing.T) {
 	if stream.eventCount() == 0 {
 		t.Fatalf("docker.pull produced no progress events")
 	}
+}
+
+func isTransientRegistryError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{" eof", "connection reset", "tls handshake timeout", "i/o timeout", "temporary failure"} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // -----------------------------------------------------------------------------
@@ -272,6 +289,11 @@ func TestDockerE2E_RmRequiresConfirmation(t *testing.T) {
 // ensureImage 幂等地 pull 一次镜像；已存在时 Engine 会返回 "up to date"，仍算成功。
 func ensureImage(t *testing.T, r *dockerRig, ref string) {
 	t.Helper()
+	// CI 在运行测试前预拉镜像。优先检查 daemon 本地缓存，避免每个
+	// 用例都再次访问 Docker Hub，使非 pull 用例受外网抖动影响。
+	if err := newRawEngine(t, r.Host).getJSON("/images/"+url.PathEscape(ref)+"/json", &struct{}{}); err == nil {
+		return
+	}
 	image, tag := splitImageRef(ref)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -443,14 +465,14 @@ func newMemStream(ctx context.Context, params any) *memStream {
 // SetAuditID 实现 command.AuditIDSetter。
 func (s *memStream) SetAuditID(id string) { s.auditID = id }
 
-func (s *memStream) Context() context.Context     { return s.ctx }
-func (s *memStream) AuditID() string              { return s.auditID }
-func (s *memStream) Caller() sdk.Caller           { return sdk.Caller{Type: sdk.CallerCLI, User: "e2e"} }
-func (s *memStream) Confirmed() bool              { return true }
-func (s *memStream) RawParams() json.RawMessage   { return s.params }
-func (s *memStream) Params(dst any) error         { return json.Unmarshal(s.params, dst) }
-func (s *memStream) Connection() *sdk.Connection  { return nil } // 由 ResolveConnectionMiddleware 注入
-func (s *memStream) Recv() <-chan sdk.Incoming    { return s.incoming }
+func (s *memStream) Context() context.Context    { return s.ctx }
+func (s *memStream) AuditID() string             { return s.auditID }
+func (s *memStream) Caller() sdk.Caller          { return sdk.Caller{Type: sdk.CallerCLI, User: "e2e"} }
+func (s *memStream) Confirmed() bool             { return true }
+func (s *memStream) RawParams() json.RawMessage  { return s.params }
+func (s *memStream) Params(dst any) error        { return json.Unmarshal(s.params, dst) }
+func (s *memStream) Connection() *sdk.Connection { return nil } // 由 ResolveConnectionMiddleware 注入
+func (s *memStream) Recv() <-chan sdk.Incoming   { return s.incoming }
 
 func (s *memStream) Stdout(data []byte) error {
 	s.mu.Lock()

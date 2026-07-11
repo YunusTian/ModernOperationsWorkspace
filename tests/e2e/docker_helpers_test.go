@@ -181,11 +181,9 @@ func newDockerRig(t *testing.T, host string) *dockerRig {
 		Manager:  plugMgr,
 		Logger:   log,
 		Resolver: connMgr,
-		// Confirm：dangerous rm 用例既要能"确认→通过"，也要能"不确认→拒绝"。
-		// - AllowConfirmer 让 Engine 层不再主动拒绝未确认调用
-		// - 插件层 dangerous.go 会独立校验 Confirmed=true（应用层护栏）
-		// 于是拒绝路径由插件返回 CONFIRMATION_REQUIRED，允许路径由测试传 Confirmed=true。
-		Confirm: command.AllowConfirmer{},
+		// 安全默认：未显式 Confirmed 的 dangerous 请求由 Engine 拒绝；
+		// confirmed=true 的路径仍会继续到插件自身的第二道护栏。
+		Confirm: command.DenyConfirmer{},
 	})
 
 	lp, err := pluginclient.LoadFromBinary(bin, nil)

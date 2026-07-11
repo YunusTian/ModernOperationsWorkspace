@@ -37,6 +37,9 @@ build/
 # ===== Wails =====
 apps/desktop/build/bin/
 apps/desktop/frontend/dist/
+!apps/desktop/frontend/dist/
+apps/desktop/frontend/dist/*
+!apps/desktop/frontend/dist/.gitkeep
 apps/desktop/frontend/wailsjs/
 
 # ===== IDE / Editor =====

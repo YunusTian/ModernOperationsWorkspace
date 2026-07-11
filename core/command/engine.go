@@ -198,7 +198,16 @@ func (e *Engine) RunStream(ctx context.Context, req Request, stream sdk.Stream) 
 	e.audit.Start(ctx, rec)
 
 	start := time.Now()
-	err = inv.Handler.ExecuteStream(ctx, stream)
+	boundStream := &invocationStream{
+		Stream:     stream,
+		ctx:        ctx,
+		auditID:    inv.AuditID,
+		caller:     inv.Request.Caller,
+		confirmed:  inv.Request.Confirmed,
+		params:     inv.Request.Params,
+		connection: inv.Request.Connection,
+	}
+	err = inv.Handler.ExecuteStream(ctx, boundStream)
 	rec.Duration = time.Since(start)
 	rec.Err = err
 	e.audit.Finish(ctx, rec)

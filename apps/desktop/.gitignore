@@ -1,6 +1,9 @@
 # Build artifacts
 build/
 frontend/dist/
+!frontend/dist/
+frontend/dist/*
+!frontend/dist/.gitkeep
 frontend/node_modules/
 
 # Wails-generated (regenerated on `wails dev`)

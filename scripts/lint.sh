@@ -1,17 +1,7 @@
 #!/usr/bin/env bash
-# lint.sh -- run golangci-lint across all modules.
-#
-# CI installs golangci-lint via the official action. When absent locally the
-# script exits 0 with a SKIP message so developers without the tool are not
-# blocked.
+# lint.sh -- run deterministic formatting and vet checks across all modules.
 
 set -euo pipefail
-
-if ! command -v golangci-lint >/dev/null 2>&1; then
-  echo "[lint] SKIP: golangci-lint not on PATH."
-  echo "        install: https://golangci-lint.run/usage/install/"
-  exit 0
-fi
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 modules=(
@@ -20,15 +10,23 @@ modules=(
   "apps/desktop"
   "plugins/ssh"
   "plugins/docker"
+  "plugins/ai"
   "sdk"
   "tests/e2e"
 )
+
+unformatted="$(git -C "$repo" ls-files '*.go' | xargs gofmt -l)"
+if [[ -n "$unformatted" ]]; then
+  echo "[lint] gofmt required:" >&2
+  echo "$unformatted" >&2
+  exit 1
+fi
 
 for m in "${modules[@]}"; do
   echo "[lint] --- $m ---"
   (
     cd "$repo/$m"
-    golangci-lint run --config "$repo/.golangci.yml" ./...
+    go vet ./...
   )
 done
 

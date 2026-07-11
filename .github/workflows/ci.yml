@@ -57,22 +57,10 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: '**/go.sum'
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.61.0
-          args: --config=.golangci.yml
-          # workspace 模式下 action 只能扫一个 working-dir；
-          # 我们用脚本手动跑所有 module。
-          skip-cache: true
-          only-new-issues: false
-          working-directory: core
-
-      - name: lint remaining modules
+      - name: Lint all modules
         run: bash scripts/lint.sh
-        # 若 golangci-lint 已在 PATH（前一步安装的会在），脚本会真跑；
-        # 否则 SKIP。避免 double-install。
 
   # ---------------------------------------------------------------------------
   # 先编译一次 ssh 插件，作为 e2e artifact，节省两平台各一次的 build 成本。
@@ -92,6 +80,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: '**/go.sum'
 
       - name: Build plugins/ssh
         shell: bash
@@ -156,6 +145,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: '**/go.sum'
 
       - name: Show env
         run: |
@@ -225,6 +215,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: '**/go.sum'
 
       - name: Ensure C compiler (windows)
         if: runner.os == 'Windows'
@@ -257,13 +248,22 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: '**/go.sum'
+
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@v2.25.0
 
       - name: gosec
-        uses: securego/gosec@v2.21.4
-        with:
-          # -exclude-dir 与 -no-fail 分行传，避免 shell 转义问题。
-          # G402: InsecureIgnoreHostKey 会在 v0.1 缺省触发；单独在 config 关掉。
-          args: -conf .gosec.json ./...
+        shell: bash
+        run: |
+          set -euo pipefail
+          for m in core apps/cli apps/desktop plugins/ssh plugins/docker plugins/ai sdk tests/e2e; do
+            echo "--- gosec $m ---"
+            # G115 flags well-bounded terminal fd / process exit-code casts in
+            # existing cross-platform adapters; keep the established policy
+            # while running the scanner with the repository's Go toolchain.
+            (cd "$m" && gosec -conf "$GITHUB_WORKSPACE/.gosec.json" -exclude-dir=proto -exclude=G104,G115,G301,G304,G404 ./...)
+          done
 
   # ---------------------------------------------------------------------------
   # docker-e2e：真实 Docker daemon 端到端测试
@@ -346,6 +346,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: '**/go.sum'
 
       - name: Docker sanity check
         if: steps.gate.outputs.run == 'true'

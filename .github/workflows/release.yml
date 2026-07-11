@@ -74,6 +74,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: '**/go.sum'
 
       - name: Build CLI
         env:
@@ -106,7 +107,7 @@ jobs:
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/mow/mow/sdk/version.Version=${MOW_VERSION}" -o "../../${BIN}" .
           cd ../..
           PKG_DIR="${GITHUB_WORKSPACE}/package-ssh"
-          go run ./scripts/package-plugin.go -manifest plugins/ssh/plugin.json -binary "${BIN}" -os "${GOOS}" -arch "${GOARCH}" -version "${MOW_VERSION}" -out "${PKG_DIR}"
+          env -u GOOS -u GOARCH go run ./scripts/package-plugin.go -manifest plugins/ssh/plugin.json -binary "${BIN}" -os "${GOOS}" -arch "${GOARCH}" -version "${MOW_VERSION}" -out "${PKG_DIR}"
           tar -C "${PKG_DIR}" -czf "${GITHUB_WORKSPACE}/${tar_name}" .
           rm -rf "${BIN}" "${PKG_DIR}"
           echo "SSH_PLUGIN_ARCHIVE=${tar_name}" >> $GITHUB_ENV
@@ -125,7 +126,7 @@ jobs:
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/mow/mow/sdk/version.Version=${MOW_VERSION}" -o "../../${BIN}" .
           cd ../..
           PKG_DIR="${GITHUB_WORKSPACE}/package-docker"
-          go run ./scripts/package-plugin.go -manifest plugins/docker/plugin.json -binary "${BIN}" -os "${GOOS}" -arch "${GOARCH}" -version "${MOW_VERSION}" -out "${PKG_DIR}"
+          env -u GOOS -u GOARCH go run ./scripts/package-plugin.go -manifest plugins/docker/plugin.json -binary "${BIN}" -os "${GOOS}" -arch "${GOARCH}" -version "${MOW_VERSION}" -out "${PKG_DIR}"
           tar -C "${PKG_DIR}" -czf "${GITHUB_WORKSPACE}/${tar_name}" .
           rm -rf "${BIN}" "${PKG_DIR}"
           echo "DOCKER_PLUGIN_ARCHIVE=${tar_name}" >> $GITHUB_ENV
@@ -144,7 +145,7 @@ jobs:
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/mow/mow/sdk/version.Version=${MOW_VERSION}" -o "../../${BIN}" .
           cd ../..
           PKG_DIR="${GITHUB_WORKSPACE}/package-ai"
-          go run ./scripts/package-plugin.go -manifest plugins/ai/plugin.json -binary "${BIN}" -os "${GOOS}" -arch "${GOARCH}" -version "${MOW_VERSION}" -out "${PKG_DIR}"
+          env -u GOOS -u GOARCH go run ./scripts/package-plugin.go -manifest plugins/ai/plugin.json -binary "${BIN}" -os "${GOOS}" -arch "${GOARCH}" -version "${MOW_VERSION}" -out "${PKG_DIR}"
           tar -C "${PKG_DIR}" -czf "${GITHUB_WORKSPACE}/${tar_name}" .
           rm -rf "${BIN}" "${PKG_DIR}"
           echo "AI_PLUGIN_ARCHIVE=${tar_name}" >> $GITHUB_ENV

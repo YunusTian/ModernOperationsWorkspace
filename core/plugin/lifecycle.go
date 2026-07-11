@@ -199,6 +199,17 @@ func packageDirectory(source string) (string, error) {
 }
 
 func copyPackage(source, destination string) error {
+	sourceRoot, err := os.OpenRoot(source)
+	if err != nil {
+		return err
+	}
+	defer sourceRoot.Close()
+	destinationRoot, err := os.OpenRoot(destination)
+	if err != nil {
+		return err
+	}
+	defer destinationRoot.Close()
+
 	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -210,19 +221,21 @@ func copyPackage(source, destination string) error {
 		if err != nil {
 			return err
 		}
-		target := filepath.Join(destination, rel)
 		if entry.IsDir() {
-			return os.MkdirAll(target, 0o755)
+			if rel == "." {
+				return nil
+			}
+			return destinationRoot.MkdirAll(rel, 0o755)
 		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
 		}
-		in, err := os.Open(path)
+		in, err := sourceRoot.Open(rel)
 		if err != nil {
 			return err
 		}
-		out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm())
+		out, err := destinationRoot.OpenFile(rel, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm())
 		if err != nil {
 			in.Close()
 			return err

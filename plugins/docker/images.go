@@ -48,6 +48,8 @@ func encodeAuth(a *registryAuth) (string, error) {
 		// Engine 对匿名 push 也要求头字段存在；给一个空 JSON 就好。
 		return base64.URLEncoding.EncodeToString([]byte("{}")), nil
 	}
+	// #nosec G117 -- Docker Engine requires AuthConfig JSON in the
+	// X-Registry-Auth header; callers and logs never receive the raw payload.
 	raw, err := json.Marshal(a)
 	if err != nil {
 		return "", err
