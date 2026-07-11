@@ -92,13 +92,25 @@ type Options struct {
 	MaxTotalCalls    int           // 默认 16；0 表示按 MaxRounds*MaxCallsPerRound 上限计算
 	MaxResultBytes   int           // 默认 64 KiB
 	Timeout          time.Duration // 默认 120s
+
+	// Redactor 用于在把 tool_call 参数写入对话历史前脱敏敏感字段。
+	// 建议注入 command.RedactParams；nil 时不做脱敏（仅在测试中允许）。
+	Redactor func(schema, params json.RawMessage) json.RawMessage
+
+	// Auditor 消费决策事件（loop / round / tool_call / loop_end）。
+	// nil 时使用 nop（不产生审计），保持零依赖运行。
+	Auditor Auditor
 }
 
 // Orchestrator 是宿主侧 AI tool-use 循环。并发安全（无内部可变状态）。
 type Orchestrator struct {
-	runner    CommandRunner
-	tools     []sdk.ToolSpec  // 已通过校验的工具目录
-	allowed   map[string]bool // fqid → 是否允许
+	runner CommandRunner
+	tools  []sdk.ToolSpec             // 已通过校验的工具目录
+	schema map[string]json.RawMessage // fqid → InputSchema；命中表示在 allowlist
+	// redactor 是可插拔的脱敏函数：签名与 command.RedactParams 对齐。
+	// 保持包间松耦合，避免 core/ai 反向依赖 core/command 的具体实现细节。
+	redactor  func(schema, params json.RawMessage) json.RawMessage
+	auditor   Auditor
 	maxRounds int
 	maxCalls  int
 	maxTotal  int
@@ -113,12 +125,17 @@ func New(opts Options) (*Orchestrator, error) {
 	}
 	o := &Orchestrator{
 		runner:    opts.Runner,
-		allowed:   make(map[string]bool),
+		schema:    make(map[string]json.RawMessage),
+		redactor:  opts.Redactor,
+		auditor:   opts.Auditor,
 		maxRounds: opts.MaxRounds,
 		maxCalls:  opts.MaxCallsPerRound,
 		maxTotal:  opts.MaxTotalCalls,
 		maxResult: opts.MaxResultBytes,
 		timeout:   opts.Timeout,
+	}
+	if o.auditor == nil {
+		o.auditor = nopAuditor{}
 	}
 	if o.maxRounds <= 0 {
 		o.maxRounds = 8
@@ -141,7 +158,7 @@ func New(opts Options) (*Orchestrator, error) {
 			return nil, err
 		}
 		o.tools = append(o.tools, spec)
-		o.allowed[fqid] = true
+		o.schema[fqid] = spec.InputSchema
 	}
 	return o, nil
 }
@@ -211,14 +228,63 @@ type Result struct {
 }
 
 // Run 执行 tool-use 循环。触及任一护栏 → 返回 *Error（带稳定 Code）。
+// 无论正常结束 / 拒收 / 超限 / provider 报错，都会保证发出恰好一次
+// EventLoopStart 与 EventLoopEnd，方便审计消费者做闭环统计。
 func (o *Orchestrator) Run(ctx context.Context, in Request) (*Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, o.timeout)
 	defer cancel()
 
+	// LoopStart：携带 tools 目录快照。
+	toolNames := make([]string, 0, len(o.tools))
+	for _, t := range o.tools {
+		toolNames = append(toolNames, t.Name)
+	}
+	o.emit(ctx, Event{
+		Type:      EventLoopStart,
+		SessionID: in.SessionID,
+		Timestamp: time.Now(),
+		Provider:  in.Provider,
+		Model:     in.Model,
+		Tools:     toolNames,
+	})
+
+	res, err := o.runLoop(ctx, in)
+
+	// LoopEnd：即使 err 非 nil 也一定发出，供审计消费者对每次 Run 做闭环统计。
+	end := Event{
+		Type:      EventLoopEnd,
+		SessionID: in.SessionID,
+		Timestamp: time.Now(),
+	}
+	if err != nil {
+		end.FinishReason = errorCode(err)
+	} else if res != nil {
+		end.FinishReason = res.Response.Finish
+		end.Round = res.Rounds
+		end.ToolCallsCount = res.ToolCalls
+		end.UsageTokens = res.Response.Usage.TotalTokens
+	}
+	o.emit(ctx, end)
+
+	return res, err
+}
+
+// runLoop 是主循环；所有 LoopStart / LoopEnd emit 责任集中在 Run，
+// 保证不管 runLoop 从哪里 return，闭环事件都会发出。
+func (o *Orchestrator) runLoop(ctx context.Context, in Request) (*Result, error) {
 	messages := append([]sdk.ChatMessage(nil), in.Messages...)
 	totalCalls := 0
 
 	for round := 1; round <= o.maxRounds; round++ {
+		o.emit(ctx, Event{
+			Type:      EventRoundStart,
+			SessionID: in.SessionID,
+			Round:     round,
+			Timestamp: time.Now(),
+			Provider:  in.Provider,
+			Model:     in.Model,
+		})
+
 		params, _ := json.Marshal(map[string]any{
 			"provider": in.Provider,
 			"model":    in.Model,
@@ -239,6 +305,17 @@ func (o *Orchestrator) Run(ctx context.Context, in Request) (*Result, error) {
 			return nil, newErr(CodeProviderDecode, "decode provider response", err)
 		}
 
+		o.emit(ctx, Event{
+			Type:           EventRoundEnd,
+			SessionID:      in.SessionID,
+			Round:          round,
+			Timestamp:      time.Now(),
+			AuditID:        resp.AuditID,
+			FinishReason:   chat.Finish,
+			ToolCallsCount: len(chat.Message.ToolCalls),
+			UsageTokens:    chat.Usage.TotalTokens,
+		})
+
 		// 正常结束：Finish != tool_calls 或工具列表为空。
 		if chat.Finish != sdk.FinishToolCalls || len(chat.Message.ToolCalls) == 0 {
 			return &Result{Response: chat, Rounds: round, ToolCalls: totalCalls}, nil
@@ -250,25 +327,36 @@ func (o *Orchestrator) Run(ctx context.Context, in Request) (*Result, error) {
 				fmt.Sprintf("tool calls in one round (%d) exceeds limit (%d)", len(chat.Message.ToolCalls), o.maxCalls), nil)
 		}
 
-		messages = append(messages, chat.Message)
+		// 在追加到对话历史前，对 tool_call.Args 做深拷贝并按 InputSchema 递归脱敏。
+		// 后续多轮请求 Provider 时，敏感字段不会随消息回流。
+		// 原始 Args 仍用于本轮 Command Engine 调用（下方 tc 循环）。
+		assistantMsg := chat.Message
+		assistantMsg.ToolCalls = redactAssistantToolCalls(assistantMsg.ToolCalls, o.schema, o.redactor)
+		messages = append(messages, assistantMsg)
 
 		for _, tc := range chat.Message.ToolCalls {
+			digest := argsDigest(o.schema[tc.Name], tc.Args, o.redactor)
+
 			// 护栏：未知工具（不在 allowlist）。
-			if !o.allowed[tc.Name] {
+			if _, ok := o.schema[tc.Name]; !ok {
+				o.emit(ctx, rejectEvent(in.SessionID, round, resp.AuditID, tc, digest, CodeUnknownTool))
 				return nil, newErr(CodeUnknownTool, fmt.Sprintf("tool %q is not allowed", tc.Name), nil)
 			}
 			// 护栏：参数必须是合法 JSON 对象；由 Command Engine 再做 schema 校验。
 			if err := validateArgs(tc.Args); err != nil {
+				o.emit(ctx, rejectEvent(in.SessionID, round, resp.AuditID, tc, digest, CodeInvalidToolArgs))
 				return nil, newErr(CodeInvalidToolArgs,
 					fmt.Sprintf("tool %q args invalid: %v", tc.Name, err), err)
 			}
-			// 护栏：总调用数上限（避免模型无限调用低成本工具耗尽预算）。
+			// 护栏：总调用数上限。
 			if totalCalls >= o.maxTotal {
+				o.emit(ctx, rejectEvent(in.SessionID, round, resp.AuditID, tc, digest, CodeTotalCalls))
 				return nil, newErr(CodeTotalCalls,
 					fmt.Sprintf("total tool calls exceed limit (%d)", o.maxTotal), nil)
 			}
 
 			pluginID, commandID, _ := splitFQID(tc.Name)
+			start := time.Now()
 			toolResp, runErr := o.runner.Run(ctx, command.Request{
 				PluginID:  pluginID,
 				CommandID: commandID,
@@ -279,6 +367,7 @@ func (o *Orchestrator) Run(ctx context.Context, in Request) (*Result, error) {
 					ParentAuditID: resp.AuditID,
 				},
 			})
+			duration := time.Since(start)
 			content := toolResultContent(toolResp, runErr, o.maxResult)
 			messages = append(messages, sdk.ChatMessage{
 				Role:       sdk.RoleTool,
@@ -286,10 +375,77 @@ func (o *Orchestrator) Run(ctx context.Context, in Request) (*Result, error) {
 				Content:    content,
 			})
 			totalCalls++
+
+			ev := Event{
+				Type:          EventToolCall,
+				SessionID:     in.SessionID,
+				Round:         round,
+				Timestamp:     time.Now(),
+				ParentAuditID: resp.AuditID,
+				ToolName:      tc.Name,
+				ToolCallID:    tc.ID,
+				ArgsDigest:    digest,
+				DurationMS:    duration.Milliseconds(),
+				ResultBytes:   len(content),
+				Truncated:     strings.HasSuffix(content, "...[truncated]"),
+			}
+			if toolResp != nil {
+				ev.AuditID = toolResp.AuditID
+			}
+			if runErr != nil {
+				var aerr *sdk.Error
+				if errors.As(runErr, &aerr) {
+					ev.ErrorCode = aerr.Code
+				} else {
+					ev.ErrorCode = "ERROR"
+				}
+			}
+			o.emit(ctx, ev)
 		}
 	}
 	return nil, newErr(CodeMaxRounds,
 		fmt.Sprintf("maximum orchestration rounds exceeded (%d)", o.maxRounds), nil)
+}
+
+// rejectEvent 是 tool-call 护栏拒收时的事件构造器：保证字段完整、Rejected=true。
+func rejectEvent(sessionID string, round int, parentAudit string, tc sdk.ToolCall, digest, code string) Event {
+	return Event{
+		Type:          EventToolCall,
+		SessionID:     sessionID,
+		Round:         round,
+		Timestamp:     time.Now(),
+		ParentAuditID: parentAudit,
+		ToolName:      tc.Name,
+		ToolCallID:    tc.ID,
+		Rejected:      true,
+		RejectCode:    code,
+		ArgsDigest:    digest,
+	}
+}
+
+// emit 是 auditor 的安全包装：panic / nil auditor 都不会打断主流程。
+func (o *Orchestrator) emit(ctx context.Context, ev Event) {
+	if o.auditor == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	o.auditor.OnEvent(ctx, ev)
+}
+
+// errorCode 从 error 中提取稳定错误码；未知错误映射为 "ERROR"。
+func errorCode(err error) string {
+	if err == nil {
+		return ""
+	}
+	var aerr *Error
+	if errors.As(err, &aerr) {
+		return aerr.Code
+	}
+	var serr *sdk.Error
+	if errors.As(err, &serr) {
+		return serr.Code
+	}
+	return "ERROR"
 }
 
 // -----------------------------------------------------------------------------
@@ -328,6 +484,30 @@ func toolResultContent(resp *command.Response, runErr error, maxBytes int) strin
 		return string(raw)
 	}
 	return string(raw[:maxBytes]) + "...[truncated]"
+}
+
+// redactAssistantToolCalls 返回一份新的 ToolCall 切片，其中每个元素的 Args
+// 已经按对应工具的 InputSchema 脱敏；schema 缺失或 redactor 为 nil 时保留原值。
+//
+// 该函数只修改副本，绝不改写传入切片，避免污染 provider 侧持有的 ChatResponse。
+func redactAssistantToolCalls(in []sdk.ToolCall, schemas map[string]json.RawMessage,
+	redactor func(schema, params json.RawMessage) json.RawMessage) []sdk.ToolCall {
+	if len(in) == 0 {
+		return in
+	}
+	out := make([]sdk.ToolCall, len(in))
+	copy(out, in)
+	if redactor == nil {
+		return out
+	}
+	for i := range out {
+		schema, ok := schemas[out[i].Name]
+		if !ok || len(schema) == 0 || len(out[i].Args) == 0 {
+			continue
+		}
+		out[i].Args = redactor(schema, out[i].Args)
+	}
+	return out
 }
 
 func firstRune(s string) string {

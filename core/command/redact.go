@@ -5,27 +5,23 @@ import (
 )
 
 // -----------------------------------------------------------------------------
-// 参数脱敏（对齐 CommandSpec.InputSchema）
+// 参数脱敏（对齐 CommandSpec.InputSchema，递归实现）
 // -----------------------------------------------------------------------------
 //
 // 约定：JSON Schema 中的字段级扩展属性 "x-mow-sensitive": true 表示该字段
-// 在审计 / 日志中必须脱敏。
+// 在审计 / 日志 / AI 回写消息中必须脱敏。为保持向后兼容，字段级
+// "sensitive": true 也识别。
 //
-// 示例 schema：
-//   {
-//     "type": "object",
-//     "properties": {
-//       "cmd":      {"type": "string"},
-//       "password": {"type": "string", "x-mow-sensitive": true}
-//     }
-//   }
+// 递归规则（v0.2）：
+//   - schema.type = "object" → 遍历 properties；命中 sensitive 的字段整体替换
+//     为 "***"；子字段仍是 object / array 时继续下潜
+//   - schema.type = "array"  → 对 items schema 应用到每个元素
+//   - 其它类型             → 原值保留（叶子节点仅依赖父级 sensitive 标记）
+//   - schema 与 params 结构不匹配时静默跳过对应分支，永不改写非目标位置
+//   - 任一路径解析失败：整份 params 原样返回，避免脱敏问题挡住审计
 //
-// 脱敏动作：
-//   - 命中字段：替换为 "***" 字符串，保留 key 结构，方便审计里看到字段名
-//   - 非对象参数（如数组或原语）：原样返回
-//   - schema 解析失败：兜底原样返回，不能因为脱敏问题挡住审计
-//
-// v0.1 只处理顶层字段；嵌套对象里的敏感字段待 v0.2 引入递归。
+// 顶层 params 可能是 object / array 之外的原语（例如插件把整个 params 声明为
+// string）；此种情况保持原逻辑：非对象参数原样返回。
 
 // sensitiveMask 是替换值，导出便于测试断言。
 const sensitiveMask = "***"
@@ -33,57 +29,101 @@ const sensitiveMask = "***"
 // RedactParams 使用 schema 描述的 sensitive 字段清单，返回一份脱敏后的 params JSON。
 // schema、params 任一为空时按"无敏感字段"处理。
 func RedactParams(schema, params json.RawMessage) json.RawMessage {
-	if len(params) == 0 {
+	if len(params) == 0 || len(schema) == 0 {
 		return params
 	}
-	names := sensitiveFields(schema)
-	if len(names) == 0 {
+	// 解析 schema 与 params 为可编辑的 any 树。
+	var schemaNode any
+	if err := json.Unmarshal(schema, &schemaNode); err != nil {
 		return params
 	}
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(params, &m); err != nil {
-		// 非对象或非法 JSON：不脱敏，交由上层自处。
+	var paramsNode any
+	if err := json.Unmarshal(params, &paramsNode); err != nil {
 		return params
 	}
-	changed := false
-	for _, n := range names {
-		if _, ok := m[n]; ok {
-			maskBytes, _ := json.Marshal(sensitiveMask)
-			m[n] = maskBytes
-			changed = true
-		}
-	}
+	redacted, changed := redactValue(schemaNode, paramsNode)
 	if !changed {
 		return params
 	}
-	out, err := json.Marshal(m)
+	out, err := json.Marshal(redacted)
 	if err != nil {
 		return params
 	}
 	return out
 }
 
-// sensitiveFields 解析 JSON Schema 的 properties，返回带 "x-mow-sensitive": true 的字段名列表。
-// schema 解析失败时返回 nil。
-func sensitiveFields(schema json.RawMessage) []string {
-	if len(schema) == 0 {
-		return nil
+// redactValue 递归遍历 (schema, value)，返回脱敏后的 value 以及是否发生改动。
+// schema 或 value 类型不匹配时原样返回。
+func redactValue(schema, value any) (any, bool) {
+	sm, ok := schema.(map[string]any)
+	if !ok {
+		return value, false
 	}
-	var doc struct {
-		Properties map[string]struct {
-			Sensitive bool `json:"x-mow-sensitive,omitempty"`
-			// 兼容 "sensitive": true 的旧写法（若有）
-			SensitiveAlt bool `json:"sensitive,omitempty"`
-		} `json:"properties"`
+	switch v := value.(type) {
+	case map[string]any:
+		return redactObject(sm, v)
+	case []any:
+		return redactArray(sm, v)
+	default:
+		return value, false
 	}
-	if err := json.Unmarshal(schema, &doc); err != nil {
-		return nil
+}
+
+// redactObject 处理 object 分支：遍历 properties，命中 sensitive → 掩码；
+// 否则若子字段仍是 object / array 则递归。
+func redactObject(schema map[string]any, obj map[string]any) (map[string]any, bool) {
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		return obj, false
 	}
-	var out []string
-	for name, p := range doc.Properties {
-		if p.Sensitive || p.SensitiveAlt {
-			out = append(out, name)
+	changed := false
+	for name, rawSub := range props {
+		subSchema, ok := rawSub.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, exists := obj[name]; !exists {
+			continue
+		}
+		if isSensitive(subSchema) {
+			obj[name] = sensitiveMask
+			changed = true
+			continue
+		}
+		newV, sub := redactValue(subSchema, obj[name])
+		if sub {
+			obj[name] = newV
+			changed = true
 		}
 	}
-	return out
+	return obj, changed
+}
+
+// redactArray 处理 array 分支：把 items schema 应用到每个元素。
+func redactArray(schema map[string]any, arr []any) ([]any, bool) {
+	itemsRaw, ok := schema["items"].(map[string]any)
+	if !ok {
+		return arr, false
+	}
+	changed := false
+	for i, el := range arr {
+		newV, sub := redactValue(itemsRaw, el)
+		if sub {
+			arr[i] = newV
+			changed = true
+		}
+	}
+	return arr, changed
+}
+
+// isSensitive 判断当前 schema 节点是否被显式标注为敏感。
+// 优先识别 "x-mow-sensitive"；兼容 "sensitive"。
+func isSensitive(s map[string]any) bool {
+	if v, ok := s["x-mow-sensitive"].(bool); ok && v {
+		return true
+	}
+	if v, ok := s["sensitive"].(bool); ok && v {
+		return true
+	}
+	return false
 }

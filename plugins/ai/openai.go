@@ -24,7 +24,23 @@ type openAIOptions struct {
 	Models         []string          `json:"models"`
 	Headers        map[string]string `json:"headers"`
 	TimeoutSeconds int               `json:"timeout_seconds"`
+
+	// Retry 参数：仅对 429 / 5xx 与 dial 阶段的可重试网络错误生效。
+	// 取值 0 → 使用默认；负值被 clamp 到默认。
+	RetryMaxAttempts   int `json:"retry_max_attempts"`     // 默认 3；1 表示不重试
+	RetryBaseBackoffMS int `json:"retry_base_backoff_ms"`  // 默认 500ms
+	RetryMaxBackoffMS  int `json:"retry_max_backoff_ms"`   // 默认 5000ms
 }
+
+// retryPolicy 是 provider 内部使用的重试参数。
+type retryPolicy struct {
+	MaxAttempts int
+	Base        time.Duration
+	Max         time.Duration
+}
+
+// defaultRetryPolicy 是 v0.4.1 默认策略：3 次总尝试，500ms → 1s → 2s（上限 5s）。
+var defaultRetryPolicy = retryPolicy{MaxAttempts: 3, Base: 500 * time.Millisecond, Max: 5 * time.Second}
 
 type openAIProvider struct {
 	name         string
@@ -34,6 +50,9 @@ type openAIProvider struct {
 	models       []string
 	headers      map[string]string
 	client       *http.Client
+	retry        retryPolicy
+	// sleep 支持在测试中替换，避免真的等待。
+	sleep func(context.Context, time.Duration) error
 }
 
 func newOpenAIProvider(pc providerSettings) (*openAIProvider, error) {
@@ -70,7 +89,54 @@ func newOpenAIProvider(pc providerSettings) (*openAIProvider, error) {
 		name: name, baseURL: strings.TrimRight(o.BaseURL, "/"), apiKey: key,
 		defaultModel: o.DefaultModel, models: append([]string(nil), o.Models...),
 		headers: o.Headers, client: &http.Client{Timeout: timeout},
+		retry: buildRetryPolicy(o), sleep: sleepCtx,
 	}, nil
+}
+
+// buildRetryPolicy 从 options 拼出重试参数；空 / 负值走默认。
+func buildRetryPolicy(o openAIOptions) retryPolicy {
+	p := defaultRetryPolicy
+	if o.RetryMaxAttempts > 0 {
+		p.MaxAttempts = o.RetryMaxAttempts
+	}
+	if o.RetryBaseBackoffMS > 0 {
+		p.Base = time.Duration(o.RetryBaseBackoffMS) * time.Millisecond
+	}
+	if o.RetryMaxBackoffMS > 0 {
+		p.Max = time.Duration(o.RetryMaxBackoffMS) * time.Millisecond
+	}
+	if p.Max < p.Base {
+		p.Max = p.Base
+	}
+	return p
+}
+
+// sleepCtx 是 time.Sleep 的可取消版本；ctx.Done 立即返回。
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+// backoffFor 计算第 attempt 次（1-based）失败后的退避时长：Base * 2^(attempt-1)，
+// 上限 Max。
+func (p *openAIProvider) backoffFor(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	d := p.retry.Base << (attempt - 1)
+	if d <= 0 || d > p.retry.Max {
+		d = p.retry.Max
+	}
+	return d
 }
 
 func (p *openAIProvider) Name() string { return p.name }
@@ -174,11 +240,52 @@ func decodeMessage(m openAIMessage) sdk.ChatMessage {
 }
 
 func (p *openAIProvider) do(ctx context.Context, payload openAIRequest) (*http.Response, error) {
-	b, err := json.Marshal(payload)
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewReader(b))
+	max := p.retry.MaxAttempts
+	if max < 1 {
+		max = 1
+	}
+	var lastErr error
+	for attempt := 1; attempt <= max; attempt++ {
+		resp, err := p.doOnce(ctx, body)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if !isRetryable(err) || attempt == max {
+			return nil, err
+		}
+		if sleepErr := p.sleep(ctx, p.backoffFor(attempt)); sleepErr != nil {
+			// ctx 取消 / 超时 → 立即返回，退化为 canceled/timeout 语义。
+			if errors.Is(sleepErr, context.Canceled) {
+				return nil, sdk.ErrCanceled
+			}
+			return nil, sdk.ErrTimeout
+		}
+	}
+	return nil, lastErr
+}
+
+// isRetryable 判断一个 do 层错误是否值得再试。
+//   - *sdk.Error.Retryable = true → 允许
+//   - sdk.ErrCanceled / sdk.ErrTimeout → 一律不重试（用户显式取消 or 已耗尽整体超时）
+func isRetryable(err error) bool {
+	if errors.Is(err, sdk.ErrCanceled) || errors.Is(err, sdk.ErrTimeout) {
+		return false
+	}
+	var se *sdk.Error
+	if errors.As(err, &se) {
+		return se.Retryable
+	}
+	return false
+}
+
+// doOnce 发起一次 HTTP 请求；调用方需保证 body 可被多次读取（此处复制自 []byte）。
+func (p *openAIProvider) doOnce(ctx context.Context, body []byte) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

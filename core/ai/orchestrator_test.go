@@ -345,3 +345,100 @@ func assertCode(t *testing.T, err error, want string) {
 		t.Fatalf("code=%s want=%s (msg=%q)", aerr.Code, want, aerr.Message)
 	}
 }
+
+// -----------------------------------------------------------------------------
+// 脱敏（Redactor）
+// -----------------------------------------------------------------------------
+
+// captureRunner 记录 ai.chat 每一轮请求里的 messages 切片，
+// 供断言 assistant.tool_calls 是否已经脱敏。
+type captureRunner struct {
+	*fakeRunner
+	sentMessages [][]sdk.ChatMessage
+}
+
+func (c *captureRunner) Run(ctx context.Context, r command.Request) (*command.Response, error) {
+	if r.PluginID == "ai" {
+		var body struct {
+			Messages []sdk.ChatMessage `json:"messages"`
+		}
+		_ = json.Unmarshal(r.Params, &body)
+		c.sentMessages = append(c.sentMessages, body.Messages)
+	}
+	return c.fakeRunner.Run(ctx, r)
+}
+
+func TestRunRedactsToolCallArgsInHistory(t *testing.T) {
+	schema := json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"host":{"type":"string"},
+			"password":{"type":"string","x-mow-sensitive":true}
+		}
+	}`)
+	base := &fakeRunner{
+		specFn: func(p, c string) (sdk.CommandSpec, error) {
+			return sdk.CommandSpec{ID: c, Permission: sdk.PermRead, InputSchema: schema}, nil
+		},
+		chatResponses: []sdk.ChatResponse{
+			{Message: sdk.ChatMessage{Role: sdk.RoleAssistant, ToolCalls: []sdk.ToolCall{{
+				ID: "c1", Name: "ssh.probe",
+				Args: json.RawMessage(`{"host":"srv","password":"hunter2"}`),
+			}}}, Finish: sdk.FinishToolCalls},
+			{Message: sdk.ChatMessage{Role: sdk.RoleAssistant, Content: "done"}, Finish: sdk.FinishStop},
+		},
+	}
+	cap := &captureRunner{fakeRunner: base}
+
+	// 用一个玩具 redactor：把 password 字段替换为 "***"（模拟 command.RedactParams）。
+	fakeRedact := func(schema, params json.RawMessage) json.RawMessage {
+		var m map[string]any
+		if err := json.Unmarshal(params, &m); err != nil {
+			return params
+		}
+		if _, ok := m["password"]; ok {
+			m["password"] = "***"
+		}
+		out, _ := json.Marshal(m)
+		return out
+	}
+
+	o, err := New(Options{Runner: cap, AllowedTools: []string{"ssh.probe"}, Redactor: fakeRedact})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Run(context.Background(), Request{Messages: []sdk.ChatMessage{{Role: sdk.RoleUser, Content: "check"}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Command Engine 收到的 params 必须保留 hunter2（否则真实调用会失败）。
+	if len(base.toolParams) != 1 {
+		t.Fatalf("expected 1 tool invocation, got %d", len(base.toolParams))
+	}
+	if !strings.Contains(string(base.toolParams[0]), "hunter2") {
+		t.Fatalf("original params should reach Engine unredacted, got %s", base.toolParams[0])
+	}
+
+	// 第 2 轮 ai.chat 请求携带的 assistant 消息 Args 必须已被脱敏。
+	if len(cap.sentMessages) < 2 {
+		t.Fatalf("expected >=2 chat requests, got %d", len(cap.sentMessages))
+	}
+	second := cap.sentMessages[1]
+	var assistant *sdk.ChatMessage
+	for i := range second {
+		if second[i].Role == sdk.RoleAssistant && len(second[i].ToolCalls) > 0 {
+			assistant = &second[i]
+			break
+		}
+	}
+	if assistant == nil {
+		t.Fatalf("assistant message not appended to history: %+v", second)
+	}
+	args := string(assistant.ToolCalls[0].Args)
+	if strings.Contains(args, "hunter2") {
+		t.Fatalf("secret leaked to provider history: %s", args)
+	}
+	if !strings.Contains(args, `"password":"***"`) {
+		t.Fatalf("expected masked password, got %s", args)
+	}
+}
