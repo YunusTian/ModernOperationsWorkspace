@@ -38,6 +38,15 @@ func (l *LoadedPlugin) Close() {
 	}
 }
 
+// NewLoadedPlugin 构造一个 LoadedPlugin，主要供以下两类调用者使用：
+//   - 测试代码（无需真正启动子进程即可组装出 LoadedPlugin）
+//   - core / apps 侧希望以进程内实现（例如内置官方插件）复用同一入口的场景
+//
+// closeFn 会在 Close() 被调用时执行；可以为 nil。
+func NewLoadedPlugin(p sdk.Plugin, closeFn func()) *LoadedPlugin {
+	return &LoadedPlugin{Plugin: p, close: closeFn}
+}
+
 // LoadFromBinary 启动 path 所指的可执行文件作为插件子进程，
 // 通过 hashicorp/go-plugin gRPC 建立通信，并返回可用的 sdk.Plugin。
 func LoadFromBinary(path string, logger hclog.Logger) (*LoadedPlugin, error) {
