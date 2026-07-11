@@ -323,6 +323,7 @@ func buildMuxFrame(kind stdType, payload []byte) []byte {
 
 // fakeStream 是 sdk.Stream 的最小内存实现，只覆盖 logsCmd 用到的方法。
 type fakeStream struct {
+	mu         sync.Mutex
 	ctx        context.Context
 	params     json.RawMessage
 	connection *sdk.Connection
@@ -344,22 +345,60 @@ func newFakeStream(ctx context.Context, conn *sdk.Connection, params any) *fakeS
 	}
 }
 
-func (s *fakeStream) Context() context.Context      { return s.ctx }
-func (s *fakeStream) AuditID() string               { return "" }
-func (s *fakeStream) Caller() sdk.Caller            { return sdk.Caller{} }
-func (s *fakeStream) Confirmed() bool               { return true }
-func (s *fakeStream) RawParams() json.RawMessage    { return s.params }
-func (s *fakeStream) Connection() *sdk.Connection   { return s.connection }
-func (s *fakeStream) Recv() <-chan sdk.Incoming     { return s.incoming }
-func (s *fakeStream) Event(v any) error             { return nil }
-func (s *fakeStream) Params(dst any) error          { return json.Unmarshal(s.params, dst) }
-func (s *fakeStream) Stdout(data []byte) error      { s.stdoutBuf.Write(data); return nil }
-func (s *fakeStream) Stderr(data []byte) error      { s.stderrBuf.Write(data); return nil }
+func (s *fakeStream) Context() context.Context    { return s.ctx }
+func (s *fakeStream) AuditID() string             { return "" }
+func (s *fakeStream) Caller() sdk.Caller          { return sdk.Caller{} }
+func (s *fakeStream) Confirmed() bool             { return true }
+func (s *fakeStream) RawParams() json.RawMessage  { return s.params }
+func (s *fakeStream) Connection() *sdk.Connection { return s.connection }
+func (s *fakeStream) Recv() <-chan sdk.Incoming   { return s.incoming }
+func (s *fakeStream) Event(v any) error           { return nil }
+func (s *fakeStream) Params(dst any) error        { return json.Unmarshal(s.params, dst) }
+func (s *fakeStream) Stdout(data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.stdoutBuf.Write(data)
+	return err
+}
+func (s *fakeStream) Stderr(data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.stderrBuf.Write(data)
+	return err
+}
 func (s *fakeStream) Finish(v any, exit int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.finished = true
 	s.finalData = v
 	s.exitCode = exit
 	return nil
+}
+
+func (s *fakeStream) stdoutString() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stdoutBuf.String()
+}
+func (s *fakeStream) stderrString() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stderrBuf.String()
+}
+func (s *fakeStream) stdoutLen() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stdoutBuf.Len()
+}
+func (s *fakeStream) stderrLen() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stderrBuf.Len()
+}
+func (s *fakeStream) isFinished() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.finished
 }
 
 func TestLogsCmd_Mux_HistoricalOnly(t *testing.T) {
@@ -387,13 +426,13 @@ func TestLogsCmd_Mux_HistoricalOnly(t *testing.T) {
 	if err := (&logsCmd{}).ExecuteStream(context.Background(), stream); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if stream.stdoutBuf.String() != "hello world" {
-		t.Fatalf("stdout=%q", stream.stdoutBuf.String())
+	if stream.stdoutString() != "hello world" {
+		t.Fatalf("stdout=%q", stream.stdoutString())
 	}
-	if stream.stderrBuf.String() != "warn " {
-		t.Fatalf("stderr=%q", stream.stderrBuf.String())
+	if stream.stderrString() != "warn " {
+		t.Fatalf("stderr=%q", stream.stderrString())
 	}
-	if !stream.finished {
+	if !stream.isFinished() {
 		t.Fatal("expected Finish called")
 	}
 }
@@ -407,11 +446,11 @@ func TestLogsCmd_Tty_Passthrough(t *testing.T) {
 	if err := (&logsCmd{}).ExecuteStream(context.Background(), stream); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if !strings.Contains(stream.stdoutBuf.String(), "raw tty line 2") {
-		t.Fatalf("tty passthrough missing: %q", stream.stdoutBuf.String())
+	if !strings.Contains(stream.stdoutString(), "raw tty line 2") {
+		t.Fatalf("tty passthrough missing: %q", stream.stdoutString())
 	}
-	if stream.stderrBuf.Len() != 0 {
-		t.Fatalf("stderr should be empty in tty mode: %q", stream.stderrBuf.String())
+	if stream.stderrLen() != 0 {
+		t.Fatalf("stderr should be empty in tty mode: %q", stream.stderrString())
 	}
 }
 
@@ -457,7 +496,7 @@ func TestLogsCmd_FollowCanceledBySignal(t *testing.T) {
 
 	// 等 stream 至少收到一帧
 	for i := 0; i < 20; i++ {
-		if stream.stdoutBuf.Len() > 0 {
+		if stream.stdoutLen() > 0 {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)

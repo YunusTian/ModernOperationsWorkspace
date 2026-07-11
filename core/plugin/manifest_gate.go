@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"syscall"
 
 	hclog "github.com/hashicorp/go-hclog"
 
@@ -119,7 +120,7 @@ func LoadInstalled(pluginsDir, id string, gate *ManifestGate) (*LoadedPlugin, *m
 	if _, err := os.Stat(filepath.Join(packageDir, manifest.ManifestFileName)); err == nil {
 		lp, mf, loadErr := LoadFromPackage(packageDir, gate)
 		return lp, mf, false, loadErr
-	} else if !errors.Is(err, os.ErrNotExist) {
+	} else if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) {
 		return nil, nil, false, fmt.Errorf("stat plugin package %q: %w", id, err)
 	}
 

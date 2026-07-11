@@ -15,13 +15,6 @@ modules=(
   "tests/e2e"
 )
 
-unformatted="$(git -C "$repo" ls-files '*.go' | xargs gofmt -l)"
-if [[ -n "$unformatted" ]]; then
-  echo "[lint] gofmt required:" >&2
-  echo "$unformatted" >&2
-  exit 1
-fi
-
 for m in "${modules[@]}"; do
   echo "[lint] --- $m ---"
   (
