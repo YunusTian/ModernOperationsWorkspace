@@ -59,12 +59,16 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=$(tr -d '[:space:]' < VERSION)
-          TAG="${GITHUB_REF_NAME#v}"
-          if [ "$VERSION" != "$TAG" ]; then
-            echo "VERSION ($VERSION) does not match tag ($TAG)" >&2
+          TAG_RAW="${GITHUB_REF_NAME#v}"
+          # 允许 tag 为 vVERSION 或 vVERSION-<pre>（例如 v0.4.1-rc.1 / v0.4.1-beta.2）
+          # ldflags 注入的版本采用 tag 完整名（含 -rc.N 后缀），便于产物中通过 `mow version` 区分
+          # 但要求 tag 的主版本必须与 VERSION 一致，避免 tag/VERSION 完全漂移
+          TAG_BASE="${TAG_RAW%%-*}"
+          if [ "$VERSION" != "$TAG_BASE" ]; then
+            echo "VERSION ($VERSION) does not match tag base ($TAG_BASE, from tag $TAG_RAW)" >&2
             exit 1
           fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version=$TAG_RAW" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-go@v5
         with:
@@ -257,16 +261,34 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME:-${{ github.ref_name }}}"
-          # 从 tag 中解析主版本号，形如 v0.3.0 / v0.3.1 → 0.3
+          # rc / beta 等预发布 tag：直接使用当前 VERSION 对应的验收清单
+          # 正式 tag：从 tag 中解析主版本号，形如 v0.3.0 / v0.3.1 → 0.3
           # 用于选取 docs/v0.<major>.<minor>-acceptance-checklist.md
-          MAJOR_MINOR=$(echo "$TAG" | sed -E 's/^v([0-9]+\.[0-9]+).*/\1/')
-          CANDIDATE="docs/v${MAJOR_MINOR}-acceptance-checklist.md"
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          if [[ "$TAG" == *-* ]]; then
+            CANDIDATE="docs/v${VERSION}-acceptance-checklist.md"
+          else
+            MAJOR_MINOR=$(echo "$TAG" | sed -E 's/^v([0-9]+\.[0-9]+).*/\1/')
+            CANDIDATE="docs/v${MAJOR_MINOR}-acceptance-checklist.md"
+          fi
           if [ -f "$CANDIDATE" ]; then
             echo "path=$CANDIDATE" >> "$GITHUB_OUTPUT"
           else
             echo "path=docs/v0.4.1-acceptance-checklist.md" >> "$GITHUB_OUTPUT"
           fi
           echo "resolved body_path: $(cat "$GITHUB_OUTPUT" | grep '^path=' | cut -d= -f2)"
+
+      - name: Detect prerelease
+        id: prerelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME:-${{ github.ref_name }}}"
+          if [[ "$TAG" == *-* ]]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -278,7 +300,7 @@ jobs:
             artifacts/*.sha256
             artifacts/SHA256SUMS
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.prerelease.outputs.value == 'true' }}
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
