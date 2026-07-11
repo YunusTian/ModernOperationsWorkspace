@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mow/mow/core/config"
 	"github.com/mow/mow/sdk"
 	"github.com/mow/mow/sdk/manifest"
 )
@@ -198,5 +199,47 @@ func TestPluginValidate_PathNotFound(t *testing.T) {
 	// happy path 里不应出现
 	if strings.Contains(stdout, "OK:") {
 		t.Errorf("stdout should not report OK: %s", stdout)
+	}
+}
+
+func TestPluginLifecycleCLI_LocalInstallAndState(t *testing.T) {
+	packageDir, _ := buildTestPackage(t)
+	rootDir := t.TempDir()
+	configPath := filepath.Join(rootDir, "config.json")
+	cfg := config.Default()
+	cfg.App.DataDir = filepath.Join(rootDir, "data")
+	cfg.App.PluginsDir = filepath.Join(rootDir, "plugins")
+	if err := config.Save(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(args ...string) (string, string, error) {
+		t.Helper()
+		root := newRootCmd()
+		var stdout, stderr bytes.Buffer
+		root.SetOut(&stdout)
+		root.SetErr(&stderr)
+		root.SetArgs(append([]string{"--config", configPath, "plugin"}, args...))
+		err := root.Execute()
+		return stdout.String(), stderr.String(), err
+	}
+
+	if out, _, err := run("install", packageDir); err != nil {
+		t.Fatalf("install: %v\n%s", err, out)
+	}
+	if out, _, err := run("list"); err != nil || !strings.Contains(out, "sample\t0.5.0\tdisabled") {
+		t.Fatalf("list after install: %v\n%s", err, out)
+	}
+	if _, _, err := run("enable", "sample"); err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	if out, _, err := run("doctor"); err != nil || !strings.Contains(out, "ok   sample@0.5.0") {
+		t.Fatalf("doctor: %v\n%s", err, out)
+	}
+	if _, _, err := run("disable", "sample"); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	if out, _, err := run("list", "--json"); err != nil || !strings.Contains(out, `"enabled":false`) {
+		t.Fatalf("json list after disable: %v\n%s", err, out)
 	}
 }

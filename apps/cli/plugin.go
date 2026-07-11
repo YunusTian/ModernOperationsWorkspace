@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	coreplugin "github.com/mow/mow/core/plugin"
 	"github.com/spf13/cobra"
 
 	"github.com/mow/mow/sdk"
@@ -19,12 +20,156 @@ import (
 // install / update / enable / disable / uninstall / doctor 在 v0.5.1 完成。
 // -----------------------------------------------------------------------------
 
-func newPluginCmd() *cobra.Command {
+func newPluginCmd(holder *appHolder) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "plugin",
 		Short: "Inspect plugin packages (Manifest, checksum, entrypoint)",
 	}
-	cmd.AddCommand(newPluginValidateCmd())
+	cmd.AddCommand(
+		newPluginValidateCmd(),
+		newPluginListCmd(holder),
+		newPluginInstallCmd(holder),
+		newPluginToggleCmd(holder, true),
+		newPluginToggleCmd(holder, false),
+		newPluginDoctorCmd(holder),
+	)
+	return cmd
+}
+
+func pluginLifecycle(holder *appHolder) (*coreplugin.Lifecycle, error) {
+	app, err := holder.Load()
+	if err != nil {
+		return nil, err
+	}
+	return coreplugin.NewLifecycle(app.Cfg.App.PluginsDir)
+}
+
+func newPluginListCmd(holder *appHolder) *cobra.Command {
+	var jsonOutput bool
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List installed plugin packages",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			lifecycle, err := pluginLifecycle(holder)
+			if err != nil {
+				return err
+			}
+			items, err := lifecycle.List()
+			if err != nil {
+				return err
+			}
+			if jsonOutput {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(items)
+			}
+			if len(items) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "No plugins installed.")
+				return nil
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "ID\tVERSION\tSTATE")
+			for _, item := range items {
+				state := "disabled"
+				if item.Enabled {
+					state = "enabled"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", item.ID, item.Version, state)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "emit JSON")
+	return cmd
+}
+
+func newPluginInstallCmd(holder *appHolder) *cobra.Command {
+	return &cobra.Command{
+		Use:   "install <package>",
+		Short: "Install a validated local plugin package",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			lifecycle, err := pluginLifecycle(holder)
+			if err != nil {
+				return err
+			}
+			item, err := lifecycle.Install(args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Installed %s@%s (disabled).\n", item.ID, item.Version)
+			return nil
+		},
+	}
+}
+
+func newPluginToggleCmd(holder *appHolder, enabled bool) *cobra.Command {
+	name, past, short := "enable", "Enabled", "Enable an installed plugin"
+	if !enabled {
+		name, past, short = "disable", "Disabled", "Disable an installed plugin"
+	}
+	return &cobra.Command{
+		Use:   name + " <id>",
+		Short: short,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			lifecycle, err := pluginLifecycle(holder)
+			if err != nil {
+				return err
+			}
+			item, err := lifecycle.SetEnabled(args[0], enabled)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s@%s.\n", past, item.ID, item.Version)
+			return nil
+		},
+	}
+}
+
+func newPluginDoctorCmd(holder *appHolder) *cobra.Command {
+	var jsonOutput bool
+	cmd := &cobra.Command{
+		Use:   "doctor",
+		Short: "Validate all installed plugin packages",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			lifecycle, err := pluginLifecycle(holder)
+			if err != nil {
+				return err
+			}
+			items, err := lifecycle.Doctor()
+			if err != nil {
+				return err
+			}
+			failed := 0
+			for _, item := range items {
+				if !item.OK {
+					failed++
+				}
+			}
+			if jsonOutput {
+				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(items); err != nil {
+					return err
+				}
+				if failed > 0 {
+					return fmt.Errorf("%d installed plugin package(s) failed validation", failed)
+				}
+				return nil
+			}
+			for _, item := range items {
+				if item.OK {
+					fmt.Fprintf(cmd.OutOrStdout(), "ok   %s@%s\n", item.ID, item.Version)
+				} else {
+					fmt.Fprintf(cmd.ErrOrStderr(), "fail %s@%s: %s\n", item.ID, item.Version, item.Error)
+				}
+			}
+			if failed > 0 {
+				return fmt.Errorf("%d installed plugin package(s) failed validation", failed)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "OK: %d plugin package(s) healthy.\n", len(items))
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "emit JSON")
 	return cmd
 }
 

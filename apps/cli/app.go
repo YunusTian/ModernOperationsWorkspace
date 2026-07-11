@@ -145,6 +145,17 @@ func (a *App) ensurePluginEnabled(ctx context.Context, id string) error {
 			return nil
 		}
 	}
+	lifecycle, err := plugin.NewLifecycle(a.Cfg.App.PluginsDir)
+	if err != nil {
+		return err
+	}
+	enabled, managed, err := lifecycle.IsEnabled(id)
+	if err != nil {
+		return fmt.Errorf("read plugin %q lifecycle state: %w", id, err)
+	}
+	if managed && !enabled {
+		return fmt.Errorf("plugin %q is disabled; run 'mow plugin enable %s' first", id, id)
+	}
 	lp, _, legacy, err := plugin.LoadInstalled(a.Cfg.App.PluginsDir, id, &plugin.ManifestGate{Logger: adaptHclog(a.Log)})
 	if err != nil {
 		return fmt.Errorf("load plugin %q: %w", id, err)

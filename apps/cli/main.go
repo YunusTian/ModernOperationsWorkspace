@@ -57,7 +57,7 @@ func newRootCmd() *cobra.Command {
 		newWorkflowCmd(appHolder),
 		newSSHCmd(appHolder),
 		newAICmd(appHolder),
-		newPluginCmd(),
+		newPluginCmd(appHolder),
 	)
 	return root
 }

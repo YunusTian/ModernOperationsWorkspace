@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+### v0.5.1 P1 — 本地插件生命周期
+
+- 新增 `core/plugin.Lifecycle`，提供本地包安装、枚举、启用、禁用和健康诊断。
+- 安装在 `PluginsDir` 同盘临时目录复制并重新执行完整 Manifest/checksum 校验，成功后通过目录 rename 原子激活；拒绝包内符号链接和覆盖既有安装。
+- 插件启停状态持久化到 `PluginsDir/.state`；显式禁用的插件不会再被 CLI 命令隐式加载。
+- CLI 新增 `mow plugin list|install|enable|disable|doctor`，其中 list/doctor 支持 JSON 输出。
+- 新增生命周期单元测试和 CLI 本地安装闭环测试，覆盖重复安装、checksum 篡改诊断及启停状态。
+
 ### v0.5.0 P1–P5 — 插件平台化 · 地基
 
 v0.5 拆分为三个独立可 tag 的子版本；本轮完成 v0.5.0 的全部实现，只剩 Release 工程化收尾。

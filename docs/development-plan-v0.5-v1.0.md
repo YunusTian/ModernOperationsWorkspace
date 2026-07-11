@@ -125,13 +125,13 @@ Manifest 至少包含：
 
 #### 4.2.1 v0.5.0 发布门槛
 
-- [ ] 提供正式 JSON Schema，位于 `sdk/manifest/plugin.schema.json`
-- [ ] `mow plugin validate <package>` 能返回稳定错误码
-- [ ] Manifest 与运行时 Metadata 不一致时拒绝启用，错误码 `PLUGIN_MANIFEST_MISMATCH`
-- [ ] Core / SDK / Protocol 兼容范围不满足时在启动子进程前拒绝加载，错误码 `PLUGIN_INCOMPATIBLE`
-- [ ] 官方 SSH / Docker / AI 三个插件补齐 `plugin.json` 并通过 validate
-- [ ] SDK 契约测试覆盖 Manifest 反序列化、兼容范围解析、错误码稳定性
-- [ ] 未新增破坏性 SDK 或 Plugin Protocol 变更（Manifest 仅补充，运行时协议不变）
+- [x] 提供正式 JSON Schema，位于 `sdk/manifest/plugin.schema.json`
+- [x] `mow plugin validate <package>` 能返回稳定错误码
+- [x] Manifest 与运行时 Metadata 不一致时拒绝启用，错误码 `PLUGIN_MANIFEST_MISMATCH`
+- [x] Core / SDK / Protocol 兼容范围不满足时在启动子进程前拒绝加载，错误码 `PLUGIN_INCOMPATIBLE`
+- [x] 官方 SSH / Docker / AI 三个插件补齐 `plugin.json` 并通过 validate
+- [x] SDK 契约测试覆盖 Manifest 反序列化、兼容范围解析、错误码稳定性
+- [x] 未新增破坏性 SDK 或 Plugin Protocol 变更（Manifest 仅补充，运行时协议不变）
 
 ### 4.3 v0.5.1：插件生命周期
 
@@ -149,6 +149,8 @@ mow plugin disable
 mow plugin uninstall
 mow plugin doctor
 ```
+
+P1 当前进度：已实现 `list / install / enable / disable / doctor` 和本地包原子安装；其余三条命令及 Catalog、升级回退、卸载语义在后续批次完成。
 
 Desktop 插件管理页（v0.5.1 保持最小可用）：
 
