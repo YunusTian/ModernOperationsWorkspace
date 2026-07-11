@@ -7,6 +7,42 @@
 
 ## [Unreleased]
 
+### v0.5.0 P1–P5 — 插件平台化 · 地基
+
+v0.5 拆分为三个独立可 tag 的子版本；本轮完成 v0.5.0 的全部实现，只剩 Release 工程化收尾。
+
+- **Plugin Manifest 规范**（[sdk/manifest/plugin.schema.json](./sdk/manifest/plugin.schema.json)）
+  - JSON Schema draft 2020-12，覆盖 `manifestVersion` / `id` / `name` / `version` / `compatibility` (`core` + 可选 `sdk` / `protocol`) / `platforms[]` / `connectionTypes[]` / `permissions[]` / `commands[]` / `settingsSchema` / `recipes[]` / `workflows[]` / `dataVersion` / `migrations[]` / `source` / `signature`
+  - `platforms[].checksum` 强制 `sha256:<hex64>`；所有相对路径禁止 `..` / `/` / `\` 穿越
+- **`sdk/manifest` Go 包**（[sdk/manifest/manifest.go](./sdk/manifest/manifest.go) + [compatibility.go](./sdk/manifest/compatibility.go) + [package.go](./sdk/manifest/package.go)）
+  - `Load(dirOrFile)` / `Parse(bytes)`：严格 `DisallowUnknownFields`，兼容 UTF-8 BOM，拒绝末尾多余 JSON
+  - 逐字段业务校验：所有失败返回 `*sdk.Error{Code: "PLUGIN_MANIFEST_INVALID", Details.field}`
+  - `MatchMetadata(sdk.Metadata)` 与运行时元信息比对
+  - `CheckCompatibility(core, sdk, protocol)` 三层 semver 约束求解；零依赖手写 SemVer 2.0.0 求解器（`>=/<=/>/</=/!=` + `,` AND + `*`），pre-release 顺序遵循规范
+  - `ValidatePackage(dir)`：entrypoint 存在性 + 真实 SHA-256 vs 声明 + recipes/workflows 路径存在性；返回逐项 `PackageReport`
+  - 覆盖率 **81.4%**
+- **`mow plugin validate` CLI**（[apps/cli/plugin.go](./apps/cli/plugin.go)）
+  - `<path>` 支持文件或目录；`--json` 稳定机器可读 schema；`-v/--verbose` 打印每条通过
+  - 稳定错误码：`PLUGIN_MANIFEST_INVALID` / `PLUGIN_CHECKSUM_MISMATCH` / `PLUGIN_ENTRYPOINT_MISSING`
+  - 7 个 CLI 用例覆盖 happy text / happy JSON / verbose / invalid manifest / checksum mismatch / missing entrypoint / path not found
+- **官方插件补齐 plugin.json**（[plugins/ssh](./plugins/ssh/plugin.json) / [plugins/docker](./plugins/docker/plugin.json) / [plugins/ai](./plugins/ai/plugin.json)）
+  - SSH：6 commands，5 平台矩阵
+  - Docker：13 commands（含 dangerous + 4 streaming），5 平台矩阵
+  - AI：3 commands + `settingsSchema.providers[].kind` 枚举
+  - 三份 `manifest_test.go` 保证 Manifest ⇄ runtime `Metadata()` 一致 + commands 集合完全对齐
+  - SSH/Docker 的运行时 `Metadata.CoreVersion` 升级为 `>=0.4.0,<0.6.0` 与 Manifest 保持一致
+- **运行时两道 Manifest 关卡**（[core/plugin/manifest_gate.go](./core/plugin/manifest_gate.go)）
+  - 新 API：`ManifestGate{CoreVersion, SDKVersion, ProtocolVersion, Logger}`，Zero value 从 `sdk/version` + `sdk.Handshake` 取默认
+  - `LoadFromPackage(dir, gate)`：静态校验 → `CheckCompatibility`（关卡 1，不启动子进程）→ 选平台 entrypoint → `loadBinary` → `MatchMetadata`（关卡 2，失败即刻 `Close`）
+  - `Manager.RegisterFromPackage`：一步完成 + 注册失败自动 `Close` 子进程
+  - `sdk/pluginclient.NewLoadedPlugin` 新增公共构造器，供测试与未来 in-process 官方插件复用
+  - 8 个新增用例，覆盖 happy / 关卡 1 拦截 / 关卡 2 关闭子进程 / entrypoint 缺失 / 无平台条目 / Register 冲突回滚 / 默认值；`core/plugin` 覆盖率 **80% → 81.8%**
+- **文档**
+  - [docs/plugin-system.md](./docs/plugin-system.md) 状态升级为 **Living**，新增 §6 Plugin Manifest（含字段表 + 加载 + validate CLI 用法）与 §7 兼容性协商（约束语法 + 两道运行时关卡 + 稳定错误码 + 官方 Manifest 索引）
+  - [docs/v0.5.0-acceptance-checklist.md](./docs/v0.5.0-acceptance-checklist.md) 状态由 Planned 更新为 Implemented（除 §7 Release Smoke 与 tag 待 CI）
+  - roadmap / development-plan 保持三子版本拆分
+- **无破坏性 SDK / Plugin Protocol 变更**：Manifest 仅补充，运行时 gRPC 协议、`sdk.Metadata` / `CommandSpec` 均保持向后兼容
+
 ## [v0.4.1] - 2026-07-11
 
 ### GA 工程化收尾
