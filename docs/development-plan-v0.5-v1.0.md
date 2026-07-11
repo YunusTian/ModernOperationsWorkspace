@@ -80,7 +80,7 @@ v0.5 到 v1.0 的核心任务，不是继续堆叠页面和命令，而是把 v0
 - [x] SDK 核心契约和 gRPC 边界已有测试
 - [x] Windows、Linux、macOS 发布产物启动 Smoke Test 已进入 Release 阻断矩阵
 - [x] v0.3 → v0.4 配置迁移测试通过
-- [x] roadmap、README、CHANGELOG、前端版本已同步为 v0.4.1；待 tag 验证
+- [x] roadmap、README、CHANGELOG、前端版本与 v0.4.1 tag 一致
 - [x] 未新增破坏性 SDK 或 Plugin Protocol 变更
 
 ## 4. v0.5 — 插件平台化

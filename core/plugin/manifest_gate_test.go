@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	hclog "github.com/hashicorp/go-hclog"
@@ -84,7 +85,7 @@ func buildPackage(t *testing.T, id, version, coreRange, sdkRange string) string 
   "version": "` + version + `",
   "compatibility": {` + compat + `},
   "platforms": [
-    {"os": "linux", "arch": "amd64", "entrypoint": "bin/entry", "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+    {"os": "linux", "arch": "amd64", "entrypoint": "bin/entry", "checksum": "sha256:2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"}
   ]
 }`
 	if err := os.WriteFile(filepath.Join(dir, manifest.ManifestFileName), []byte(m), 0o644); err != nil {
@@ -118,6 +119,67 @@ func TestLoadFromPackage_Happy(t *testing.T) {
 	}
 	if *closed {
 		t.Error("plugin should not be closed on happy path")
+	}
+}
+
+func TestLoadInstalledPrefersPackage(t *testing.T) {
+	stubPlatform(t)
+	stubLoadBinary(t, sdk.Metadata{ID: "ai", Version: "0.5.0"})
+	root := t.TempDir()
+	pkg := buildPackage(t, "ai", "0.5.0", ">=0.4.0,<0.6.0", "")
+	if err := os.Rename(pkg, filepath.Join(root, "ai")); err != nil {
+		t.Fatal(err)
+	}
+	lp, mf, legacy, err := LoadInstalled(root, "ai", &ManifestGate{CoreVersion: "0.5.0", SDKVersion: "0.5.0", ProtocolVersion: "1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lp.Close()
+	if legacy || mf == nil || mf.ID != "ai" {
+		t.Fatalf("legacy=%v manifest=%+v", legacy, mf)
+	}
+}
+
+func TestLoadInstalledLegacyFallback(t *testing.T) {
+	stubLoadBinary(t, sdk.Metadata{ID: "ai", Version: "0.4.1"})
+	root := t.TempDir()
+	name := "ai"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	if err := os.WriteFile(filepath.Join(root, name), []byte("legacy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lp, mf, legacy, err := LoadInstalled(root, "ai", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lp.Close()
+	if !legacy || mf != nil {
+		t.Fatalf("legacy=%v manifest=%+v", legacy, mf)
+	}
+}
+
+func TestLoadFromPackageChecksumBlocksSubprocess(t *testing.T) {
+	stubPlatform(t)
+	dir := buildPackage(t, "ai", "0.5.0", ">=0.4.0,<0.6.0", "")
+	if err := os.WriteFile(filepath.Join(dir, "bin", "entry"), []byte("tampered"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	orig := loadBinary
+	loadBinary = func(string, hclog.Logger) (*LoadedPlugin, error) {
+		called = true
+		return nil, errors.New("must not start")
+	}
+	t.Cleanup(func() { loadBinary = orig })
+	_, _, err := LoadFromPackage(dir, &ManifestGate{CoreVersion: "0.5.0", SDKVersion: "0.5.0", ProtocolVersion: "1.0.0"})
+	var se *sdk.Error
+	if !errors.As(err, &se) || se.Code != manifest.ErrCodeChecksumMismatch {
+		t.Fatalf("error=%v", err)
+	}
+	if called {
+		t.Fatal("subprocess started before checksum validation")
 	}
 }
 

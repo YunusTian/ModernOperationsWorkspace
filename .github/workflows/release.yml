@@ -105,10 +105,10 @@ jobs:
           cd plugins/ssh
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/mow/mow/sdk/version.Version=${MOW_VERSION}" -o "../../${BIN}" .
           cd ../..
-          # v0.5.0: 把 plugin.json 一并放入 tar，供运行时 Manifest gate 与 `mow plugin validate` 使用。
-          # 真实 checksum 由 v0.5.1 的 catalog 工具在发布阶段注入；这里保留 Manifest 原始占位。
-          tar -czf "${tar_name}" "${BIN}" -C plugins/ssh plugin.json
-          rm -f "${BIN}"
+          PKG_DIR="${GITHUB_WORKSPACE}/package-ssh"
+          go run ./scripts/package-plugin.go -manifest plugins/ssh/plugin.json -binary "${BIN}" -os "${GOOS}" -arch "${GOARCH}" -version "${MOW_VERSION}" -out "${PKG_DIR}"
+          tar -C "${PKG_DIR}" -czf "${GITHUB_WORKSPACE}/${tar_name}" .
+          rm -rf "${BIN}" "${PKG_DIR}"
           echo "SSH_PLUGIN_ARCHIVE=${tar_name}" >> $GITHUB_ENV
 
       - name: Build Docker Plugin
@@ -124,8 +124,10 @@ jobs:
           cd plugins/docker
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/mow/mow/sdk/version.Version=${MOW_VERSION}" -o "../../${BIN}" .
           cd ../..
-          tar -czf "${tar_name}" "${BIN}" -C plugins/docker plugin.json
-          rm -f "${BIN}"
+          PKG_DIR="${GITHUB_WORKSPACE}/package-docker"
+          go run ./scripts/package-plugin.go -manifest plugins/docker/plugin.json -binary "${BIN}" -os "${GOOS}" -arch "${GOARCH}" -version "${MOW_VERSION}" -out "${PKG_DIR}"
+          tar -C "${PKG_DIR}" -czf "${GITHUB_WORKSPACE}/${tar_name}" .
+          rm -rf "${BIN}" "${PKG_DIR}"
           echo "DOCKER_PLUGIN_ARCHIVE=${tar_name}" >> $GITHUB_ENV
 
       - name: Build AI Plugin
@@ -141,8 +143,10 @@ jobs:
           cd plugins/ai
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/mow/mow/sdk/version.Version=${MOW_VERSION}" -o "../../${BIN}" .
           cd ../..
-          tar -czf "${tar_name}" "${BIN}" -C plugins/ai plugin.json
-          rm -f "${BIN}"
+          PKG_DIR="${GITHUB_WORKSPACE}/package-ai"
+          go run ./scripts/package-plugin.go -manifest plugins/ai/plugin.json -binary "${BIN}" -os "${GOOS}" -arch "${GOARCH}" -version "${MOW_VERSION}" -out "${PKG_DIR}"
+          tar -C "${PKG_DIR}" -czf "${GITHUB_WORKSPACE}/${tar_name}" .
+          rm -rf "${BIN}" "${PKG_DIR}"
           echo "AI_PLUGIN_ARCHIVE=${tar_name}" >> $GITHUB_ENV
 
       - name: Build Desktop (skip non-native)

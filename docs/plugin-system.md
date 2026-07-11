@@ -158,6 +158,18 @@ plugin-package/
 └── docs/                # 可选：面向用户的文档
 ```
 
+正式安装布局为：
+
+```text
+<PluginsDir>/
+└── <plugin-id>/
+    ├── plugin.json
+    └── bin/
+        └── <entrypoint>[.exe]
+```
+
+Release archive 解压后必须直接得到 `plugin.json + bin/`，不得要求用户改名或移动二进制。发布构建会把 Manifest 裁剪为当前目标平台，并注入该二进制的真实 SHA-256。
+
 ### 6.2 Manifest 字段
 
 | 字段 | 是否必需 | 说明 |
@@ -233,7 +245,7 @@ MOW 通过 Manifest 的三层 semver 约束实现兼容性协商：`core` / `sdk
 `core/plugin.LoadFromPackage(packageDir, gate)` 与 `Manager.RegisterFromPackage` 在启动子进程前后各设一道关卡：
 
 ```
-manifest.Load(dir)              静态结构校验
+manifest.ValidatePackage(dir)   静态结构 + entrypoint + checksum 校验
   ↓
 CheckCompatibility(core, sdk, protocol)    ← 关卡 1：还没启动子进程
   ↓ 失败 → PLUGIN_INCOMPATIBLE（附 layer / actual / constraint）
@@ -251,6 +263,7 @@ MatchMetadata(runtime meta)              ← 关卡 2：拿到子进程 Metadata
 - **关卡 2** 一旦发现 Manifest 与运行时 `sdk.Metadata` 的 `id` 或 `version` 对不上，**必须**立即关闭子进程，避免泄漏
 - 三层约束缺省时（如 Manifest 不声明 `compatibility.sdk`）跳过该层
 - Runtime 版本从 [sdk/version.Version](../sdk/version/version.go) 与 [sdk.Handshake.ProtocolVersion](../sdk/handshake.go) 读取；`ManifestGate` 允许 apps 覆盖用于测试
+- 实际应用入口统一调用 `plugin.LoadInstalled`：优先走包目录和 Manifest Gate。v0.5.x 为升级兼容保留旧式 `<PluginsDir>/<id>[.exe]` 平铺二进制加载，但会记录弃用警告；新安装和 Release 产物必须使用包目录。旧式入口计划在 v1.0 移除
 
 ### 7.3 稳定错误码
 

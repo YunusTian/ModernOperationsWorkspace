@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"runtime"
 	"sync"
 	"time"
 
@@ -139,21 +137,20 @@ func (a *App) Close(ctx context.Context) {
 // -----------------------------------------------------------------------------
 
 // ensurePluginEnabled 保证指定插件已注册并 Enable。
-// 查找规则：<PluginsDir>/<id>[.exe]
+// 查找规则：优先 <PluginsDir>/<id>/plugin.json 包；v0.5.x 兼容旧的
+// <PluginsDir>/<id>[.exe] 平铺二进制。
 func (a *App) ensurePluginEnabled(ctx context.Context, id string) error {
 	if e, ok := a.PlugMgr.Get(id); ok {
 		if e.State == plugin.StateEnabled {
 			return nil
 		}
 	}
-	binPath := filepath.Join(a.Cfg.App.PluginsDir, id+execSuffix())
-	if _, err := os.Stat(binPath); err != nil {
-		return fmt.Errorf("plugin binary not found: %s (%w)", binPath, err)
-	}
-
-	lp, err := loadPluginBinary(binPath, a.Log)
+	lp, _, legacy, err := plugin.LoadInstalled(a.Cfg.App.PluginsDir, id, &plugin.ManifestGate{Logger: adaptHclog(a.Log)})
 	if err != nil {
 		return fmt.Errorf("load plugin %q: %w", id, err)
+	}
+	if legacy {
+		a.Log.WithComponent("plugin.loader").Warn("legacy flat plugin layout is deprecated", "id", id)
 	}
 	a.loaded = append(a.loaded, lp.Close)
 
@@ -165,13 +162,6 @@ func (a *App) ensurePluginEnabled(ctx context.Context, id string) error {
 		return fmt.Errorf("enable plugin %q: %w", id, err)
 	}
 	return nil
-}
-
-func execSuffix() string {
-	if runtime.GOOS == "windows" {
-		return ".exe"
-	}
-	return ""
 }
 
 // -----------------------------------------------------------------------------
@@ -215,4 +205,3 @@ func (e engineRunner) Run(ctx context.Context, req command.Request) (*command.Re
 func (e engineRunner) Spec(pluginID, commandID string) (sdk.CommandSpec, error) {
 	return e.engine.Spec(pluginID, commandID)
 }
-

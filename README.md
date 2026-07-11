@@ -164,12 +164,12 @@ go test -count=1 -run TestDockerE2E ./...
 **自动化测试通过：76/76 | E2E 通过：23/23 | 手动验收：42/42**  
 详见 [v0.1 验收清单](./docs/v0.1-acceptance-checklist.md)
 
-### 最新交付（v0.4.0 已发布 · v0.4.1 工程化收尾已实现）
+### 最新交付（v0.4.1 已发布 · v0.5.0-rc.1 Manifest 平台化验证中）
 
 - **v0.3.0**（[CHANGELOG](./CHANGELOG.md#v030---2026-07-10)）：Docker Plugin（unix / tcp / tcp+TLS · 13 条命令）+ Docker Dashboard + Workflow 五批增强（when / retry / on_failure / rollback / parallel / JSONL 历史）
 - **v0.3.1**（[CHANGELOG](./CHANGELOG.md#v031---2026-07-10)）：稳定性补丁 —— `plugins/docker` 覆盖率 **76.0%**；JSONL 轮转 + 保留策略 + 损坏行恢复 + 跨进程锁（`flock` / `LockFileEx`）；Windows `npipe://` 真实实现（go-winio）；TLS `docker.exec` raw-hijack；Docker E2E 接入常规 CI pipeline
 - **v0.4.0**（[CHANGELOG](./CHANGELOG.md#v040---2026-07-11) · [v0.4 验收清单](./docs/v0.4-acceptance-checklist.md)）：AI 可用闭环 —— OpenAI-compatible Provider（含有上限退避重试）+ 宿主 tool-use Orchestrator（Tool 目录自动派生 + 五道护栏 + 结果截断）+ 参数递归脱敏 + 完整决策链路审计（5 类事件 + SlogAuditor）+ CLI/Desktop 双端接入（`mow ai ask` 走 orchestrator，Desktop `AIAsk` + `UsageBadges` + `AIStatus` 配置横幅 + Retry 按钮）
-- **v0.4.1**（[验收清单](./docs/v0.4.1-acceptance-checklist.md)）：统一版本源、SDK 契约测试、三平台 Release 安装 Smoke、v0.3/v0.4 配置迁移；实现完成，待 CI 与 tag
+- **v0.4.1**（[验收清单](./docs/v0.4.1-acceptance-checklist.md)）：统一版本源、SDK 契约测试、三平台 Release 安装 Smoke、v0.3/v0.4 配置迁移；已发布
 
 ## Roadmap
 
@@ -181,7 +181,7 @@ go test -count=1 -run TestDockerE2E ./...
 | **v0.3.1** | 稳定性补丁：Docker 覆盖率 76.0% · JSONL 轮转+跨进程锁 · Windows npipe（go-winio） · TLS exec raw-hijack · Docker E2E 接入 CI | ✅ 已发布 |
 | **v0.4** | AI 可用闭环：OpenAI-compatible Provider + 宿主 tool-use Orchestrator + 决策链路审计 + CLI/Desktop 端到端 | ✅ 已发布（v0.4.0） |
 | **v0.4.1** | GA 收尾：版本一致性、SDK 契约、安装 Smoke、配置迁移 | ✅ 已发布 |
-| **v0.5.0** | 插件平台化 · 地基：Plugin Manifest + `plugin validate` + 兼容性拒绝 | 📋 计划中 |
+| **v0.5.0** | 插件平台化 · 地基：Plugin Manifest + `plugin validate` + 包加载/真实 checksum/Release Smoke | 🚧 RC 验证中 |
 | **v0.5.1** | 插件平台化 · 生命周期：install / upgrade / uninstall + 本地 Catalog 雏形 | 📋 计划中 |
 | **v0.5.2** | 插件平台化 · 闭环：Schema 驱动配置 UI + PVE 参考实现 | 📋 计划中 |
 | **v0.6** | Workflow 2.0：版本化、子工作流、审批、调度、通知、SQLite 历史 | 📋 计划中 |

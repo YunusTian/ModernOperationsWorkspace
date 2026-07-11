@@ -2,8 +2,8 @@
 //
 // 本文件在 core/plugin 里为插件加载链路增加两道 Manifest 关卡：
 //
-//   1) 启动子进程之前：CheckCompatibility（Core / SDK / Protocol 三层 semver）
-//   2) 启动子进程之后立即：MatchMetadata（Manifest.id/version ⇄ 运行时 Metadata）
+//  1. 启动子进程之前：CheckCompatibility（Core / SDK / Protocol 三层 semver）
+//  2. 启动子进程之后立即：MatchMetadata（Manifest.id/version ⇄ 运行时 Metadata）
 //
 // 只要任一步失败：
 //   - 第 1 步：直接返回错误，不启动子进程（避免为已知不兼容的插件付出进程开销）
@@ -75,6 +75,12 @@ func (g *ManifestGate) resolve() ManifestGate {
 // 返回的 LoadedPlugin 可直接传给 Manager.Register；同时返回 Manifest，方便调用方
 // 后续持久化或审计。
 func LoadFromPackage(packageDir string, gate *ManifestGate) (*LoadedPlugin, *manifest.Manifest, error) {
+	// Runtime loading uses the same filesystem and checksum validation as
+	// `mow plugin validate`; a package cannot pass CLI validation yet bypass it
+	// during actual startup.
+	if _, err := manifest.ValidatePackage(packageDir); err != nil {
+		return nil, nil, err
+	}
 	m, err := manifest.Load(packageDir)
 	if err != nil {
 		return nil, nil, err
@@ -101,6 +107,32 @@ func LoadFromPackage(packageDir string, gate *ManifestGate) (*LoadedPlugin, *man
 	}
 
 	return lp, m, nil
+}
+
+// LoadInstalled resolves the v0.5 package layout first, then falls back to the
+// v0.4 flat executable layout for the v0.5.x compatibility window.
+//
+// Package: <pluginsDir>/<id>/plugin.json + bin/<entrypoint>
+// Legacy:  <pluginsDir>/<id>[.exe]
+func LoadInstalled(pluginsDir, id string, gate *ManifestGate) (*LoadedPlugin, *manifest.Manifest, bool, error) {
+	packageDir := filepath.Join(pluginsDir, id)
+	if _, err := os.Stat(filepath.Join(packageDir, manifest.ManifestFileName)); err == nil {
+		lp, mf, loadErr := LoadFromPackage(packageDir, gate)
+		return lp, mf, false, loadErr
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, nil, false, fmt.Errorf("stat plugin package %q: %w", id, err)
+	}
+
+	legacyPath := filepath.Join(pluginsDir, id)
+	if runtime.GOOS == "windows" {
+		legacyPath += ".exe"
+	}
+	if _, err := os.Stat(legacyPath); err != nil {
+		return nil, nil, false, fmt.Errorf("plugin %q not installed as package (%s) or legacy binary (%s): %w", id, packageDir, legacyPath, err)
+	}
+	resolved := gate.resolve()
+	lp, err := loadBinary(legacyPath, resolved.Logger)
+	return lp, nil, true, err
 }
 
 // RegisterFromPackage 是 LoadFromPackage + Manager.Register 的组合形式。

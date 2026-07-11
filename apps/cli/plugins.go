@@ -14,17 +14,11 @@ import (
 	"github.com/mow/mow/core/config"
 	"github.com/mow/mow/core/logger"
 	"github.com/mow/mow/sdk"
-	"github.com/mow/mow/sdk/pluginclient"
 )
 
 // -----------------------------------------------------------------------------
 // 插件加载封装
 // -----------------------------------------------------------------------------
-
-// loadPluginBinary 启动 path 指向的插件子进程。
-func loadPluginBinary(path string, log *logger.Logger) (*pluginclient.LoadedPlugin, error) {
-	return pluginclient.LoadFromBinary(path, adaptHclog(log))
-}
 
 // pluginInitRequest 构造 sdk.InitRequest。
 func pluginInitRequest(pc config.PluginConfig, cfg config.Config) sdk.InitRequest {

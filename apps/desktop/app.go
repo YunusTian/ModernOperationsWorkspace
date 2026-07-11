@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,7 +26,6 @@ import (
 	"github.com/mow/mow/core/recipe"
 	"github.com/mow/mow/core/workflow/history"
 	"github.com/mow/mow/sdk"
-	"github.com/mow/mow/sdk/pluginclient"
 	"github.com/mow/mow/sdk/version"
 )
 
@@ -207,13 +205,12 @@ func (a *App) ensurePlugin(ctx context.Context, id string) error {
 		return nil
 	}
 
-	binPath := filepath.Join(a.cfg.App.PluginsDir, id+execSuffix())
-	if _, err := os.Stat(binPath); err != nil {
-		return fmt.Errorf("plugin binary not found: %s (%w)", binPath, err)
-	}
-	lp, err := pluginclient.LoadFromBinary(binPath, nil)
+	lp, _, legacy, err := plugin.LoadInstalled(a.cfg.App.PluginsDir, id, nil)
 	if err != nil {
 		return fmt.Errorf("load plugin %q: %w", id, err)
+	}
+	if legacy {
+		a.log.WithComponent("plugin.loader").Warn("legacy flat plugin layout is deprecated", "id", id)
 	}
 
 	if err := a.plugMgr.Register(lp.Plugin); err != nil {
@@ -250,13 +247,6 @@ func (a *App) ensurePlugin(ctx context.Context, id string) error {
 	a.enabled[id] = true
 	a.loadedMu.Unlock()
 	return nil
-}
-
-func execSuffix() string {
-	if runtime.GOOS == "windows" {
-		return ".exe"
-	}
-	return ""
 }
 
 // -----------------------------------------------------------------------------
