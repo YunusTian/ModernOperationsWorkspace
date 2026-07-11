@@ -180,8 +180,13 @@ go test -count=1 -run TestDockerE2E ./...
 | **v0.3.1** | 稳定性补丁：Docker 覆盖率 76.0% · JSONL 轮转+跨进程锁 · Windows npipe（go-winio） · TLS exec raw-hijack · Docker E2E 接入 CI | ✅ 已发布 |
 | **v0.4** | AI 可用闭环：OpenAI-compatible Provider + 宿主 tool-use Orchestrator + 决策链路审计 + CLI/Desktop 端到端 | ✅ 已发布（v0.4.0） |
 | **v0.5** | 平台产品化：插件 manifest、安装升级、兼容性、配置 UI、诊断与 Marketplace 本地 catalog | 📋 计划中 |
+| **v0.6** | Workflow 2.0：版本化、子工作流、审批、调度、通知、SQLite 历史 | 📋 计划中 |
+| **v0.7** | 基础设施扩展：PVE 正式版 + Kubernetes MVP | 📋 计划中 |
+| **v0.8** | 可观测与诊断中心 | 📋 计划中 |
+| **v0.9** | AI Operations 2.0：Plan、MCP、本地模型、知识接入 | 📋 计划中 |
+| **v1.0** | SDK/Protocol 稳定、安装升级迁移、长期验证 | 📋 计划中 |
 
-详见 [docs/roadmap.md](./docs/roadmap.md)。
+详见 [docs/roadmap.md](./docs/roadmap.md) 与 [v0.5～v1.0 详细开发计划](./docs/development-plan-v0.5-v1.0.md)。
 
 ## 参与贡献
 

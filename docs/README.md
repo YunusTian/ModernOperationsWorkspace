@@ -25,6 +25,7 @@
 | [permission.md](./permission.md) | 权限模型 | 九 |
 | [observability.md](./observability.md) | 日志与可观测 | 十 |
 | [roadmap.md](./roadmap.md) | 路线图 | 十一 |
+| [development-plan-v0.5-v1.0.md](./development-plan-v0.5-v1.0.md) | v0.5～v1.0 详细开发计划与验收门槛 | 十一、十三 |
 
 ## RFC 撰写约定
 

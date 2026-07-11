@@ -1,7 +1,7 @@
 # RFC: Roadmap
 
 - 状态：Living
-- 版本：v0.4
+- 版本：v0.5-planning
 - 更新日期：2026-07-11
 - 相关章节：Architecture.md § 十一
 
@@ -63,9 +63,9 @@
 
 **v0.3.1 全部完成 —— 可以打 tag 发布。**
 
-## v0.4 — AI 可用闭环 🚧 进行中
+## v0.4 — AI 可用闭环 ✅ 已发布（v0.4.0）
 
-正式发布标准以 [v0.4 验收清单](./v0.4-acceptance-checklist.md) 为准：一个真实 OpenAI-compatible Provider、宿主侧只读 tool-use、CLI 与 Desktop 用户入口，以及安全和跨平台验收。仅有接口与 mock 不视为 v0.4 完成。
+正式发布标准已按 [v0.4 验收清单](./v0.4-acceptance-checklist.md) 全部完成：OpenAI-compatible Provider、宿主侧只读 tool-use、决策链审计、递归脱敏、CLI 与 Desktop 入口，以及 Windows/Linux E2E。
 
 **v0.4.0 骨架**（本次交付）：
 
@@ -78,17 +78,23 @@
 - ✅ [docs/ai-plugin.md](./ai-plugin.md)：v0.4 设计文档
 - ✅ [go.work](../go.work) 追加 `plugins/ai`；[ci.yml](../.github/workflows/ci.yml) 三个 build/vet/test 循环全部纳入
 
-**下一阶段**：
+**v0.4.0 正式交付**：
 
-- 真实 Provider：OpenAI / Anthropic（含 rate limit / retry / rate-limited 错误码）
-- **宿主侧 tool-use 闭环**：宿主检测 `ToolCall` → 借 Command Engine 执行 allowlist 中的只读 Command → 结果以 `role=tool` 消息回喂 provider 续写；架构见 [ADR-0001](./adr/0001-host-side-ai-tool-orchestration.md)
-- CLI AI 入口与 Desktop AI Chat 面板
+- ✅ OpenAI-compatible Provider：一次性/流式 Chat、tool calls、错误映射和有上限退避重试
+- ✅ **宿主侧 tool-use 闭环**：CommandSpec 派生工具、只读 allowlist、五道资源护栏、全链路审计；架构见 [ADR-0001](./adr/0001-host-side-ai-tool-orchestration.md)
+- ✅ CLI：`ai providers` / `ai ask` / `ai chat`
+- ✅ Desktop：AI Workspace、Ask、usage、Retry、配置状态提示
+- ✅ 安全：递归脱敏、Dangerous/Streaming/Recursive AI 拒绝、fake-provider E2E
 
-**v0.5 承接**：
+MCP、知识接入和更强的 AI Plan 能力调整到 v0.9；v0.5 优先完成插件平台化。
 
-- MCP Server / Client 双向对接（既能作为 MCP 客户端调外部 MCP Server，也能把 MOW 自己的 Command 暴露成 MCP Server）
-- Embedding / vector store（RAG）
-- 通知 Provider（Webhook / Email / IM）作为独立 plugin
+## v0.4.1 — GA 工程化收尾
+
+- 唯一版本源与版本一致性
+- SDK 契约测试
+- Release 二进制 Smoke Test
+- v0.3 → v0.4 配置迁移验证
+- 文档和发布状态清理
 
 ## v0.5 — 平台产品化
 
@@ -98,6 +104,41 @@
 - 数据迁移、诊断包、日志查看与更新机制
 - Marketplace 雏形；PVE 作为首个外部插件参考实现
 - Kubernetes、数据库插件延后到平台扩展机制稳定之后
+
+## v0.6 — Workflow 2.0
+
+- Workflow 版本化、子工作流、审批、Dry-run
+- 定时/Webhook 触发与通知插件
+- `parallel_limit`、step target、暂停恢复
+- SQLite 结构化历史与搜索统计
+
+## v0.7 — 基础设施扩展
+
+- PVE 正式插件
+- Kubernetes MVP
+- PostgreSQL / MySQL 只读诊断探索
+
+## v0.8 — 可观测与诊断中心
+
+- Command / Workflow / AI 统一审计查询
+- Target 与插件健康状态
+- 诊断包、Trace、指标和错误码聚合
+
+## v0.9 — AI Operations 2.0
+
+- Plan / Explain / Dry-run / 分步确认
+- MCP Client / Server
+- Ollama / 本地模型
+- 面向运维手册、历史故障和 Workflow 的受控知识接入
+
+## v1.0 — 稳定承诺
+
+- SDK / Plugin Protocol / Manifest / Workflow DSL 稳定
+- 安装、升级、回退、迁移和卸载
+- 仓库外插件验证
+- 跨平台长期运行与 RC 稳定期
+
+v0.5～v1.0 的详细范围、非目标、依赖关系和发布门槛见 [开发计划](./development-plan-v0.5-v1.0.md)。
 
 ## MVP 起步指南（附录 A）
 
