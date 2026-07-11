@@ -1,0 +1,219 @@
+package main
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+
+	"github.com/spf13/cobra"
+
+	"github.com/mow/mow/sdk"
+	"github.com/mow/mow/sdk/manifest"
+)
+
+// -----------------------------------------------------------------------------
+// mow plugin ...
+//
+// v0.5.0 P2：只落地 `mow plugin validate`。
+// install / update / enable / disable / uninstall / doctor 在 v0.5.1 完成。
+// -----------------------------------------------------------------------------
+
+func newPluginCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "plugin",
+		Short: "Inspect plugin packages (Manifest, checksum, entrypoint)",
+	}
+	cmd.AddCommand(newPluginValidateCmd())
+	return cmd
+}
+
+type pluginValidateOpts struct {
+	JSON    bool
+	Verbose bool
+}
+
+func newPluginValidateCmd() *cobra.Command {
+	o := &pluginValidateOpts{}
+	cmd := &cobra.Command{
+		Use:   "validate <path>",
+		Short: "Validate a plugin package (plugin.json + entrypoint + checksums)",
+		Long: `Validate parses plugin.json against the v0.5.0 Manifest schema and
+performs filesystem-level checks against the package layout:
+
+  1. plugin.json is well-formed and passes semantic validation
+  2. Each platforms[].entrypoint exists inside the package
+  3. Each entrypoint's SHA-256 matches the declared checksum
+  4. Each recipes[].path / workflows[].path exists
+
+<path> may point at a package directory or directly at plugin.json.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPluginValidate(cmd.OutOrStdout(), cmd.ErrOrStderr(), args[0], o)
+		},
+	}
+	f := cmd.Flags()
+	f.BoolVar(&o.JSON, "json", false, "emit machine-readable JSON report")
+	f.BoolVarP(&o.Verbose, "verbose", "v", false, "print each check (default: only failures + summary)")
+	return cmd
+}
+
+// pluginValidateReport 是 --json 输出的稳定 schema。
+type pluginValidateReport struct {
+	OK         bool                  `json:"ok"`
+	Path       string                `json:"path"`
+	PackageDir string                `json:"packageDir,omitempty"`
+	Manifest   *pluginValidateMeta   `json:"manifest,omitempty"`
+	Checks     []pluginValidateCheck `json:"checks"`
+	Error      *pluginValidateError  `json:"error,omitempty"`
+}
+
+type pluginValidateMeta struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+type pluginValidateCheck struct {
+	Kind    string `json:"kind"`
+	Path    string `json:"path,omitempty"`
+	OK      bool   `json:"ok"`
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+type pluginValidateError struct {
+	Code    string         `json:"code"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"details,omitempty"`
+}
+
+// runPluginValidate 组合 sdk.manifest.Load + ValidatePackage 并渲染报告。
+// 返回值：任一失败均返回 error（供 shell exit code 与自动化脚本使用）。
+func runPluginValidate(stdout, stderr io.Writer, path string, o *pluginValidateOpts) error {
+	report := &pluginValidateReport{Path: path}
+
+	// 1) 先做 Load —— 若 Manifest 本身不合法，直接失败并返回，不再触碰磁盘。
+	m, err := manifest.Load(path)
+	if err != nil {
+		fillError(report, err)
+		render(stdout, stderr, report, o)
+		return err
+	}
+	report.Manifest = &pluginValidateMeta{ID: m.ID, Name: m.Name, Version: m.Version}
+	report.Checks = append(report.Checks, pluginValidateCheck{Kind: "manifest", OK: true})
+
+	// 2) 磁盘级校验
+	pkg, pkgErr := manifest.ValidatePackage(path)
+	if pkg != nil {
+		report.PackageDir = pkg.PackageDir
+		for _, c := range pkg.Checks {
+			item := pluginValidateCheck{Kind: c.Kind, Path: c.Path, OK: c.OK}
+			if !c.OK && c.Err != nil {
+				var se *sdk.Error
+				if errors.As(c.Err, &se) {
+					item.Code = se.Code
+					item.Message = se.Message
+				} else {
+					item.Message = c.Err.Error()
+				}
+			}
+			report.Checks = append(report.Checks, item)
+		}
+	}
+	if pkgErr != nil {
+		fillError(report, pkgErr)
+		render(stdout, stderr, report, o)
+		return pkgErr
+	}
+
+	report.OK = true
+	render(stdout, stderr, report, o)
+	return nil
+}
+
+func fillError(report *pluginValidateReport, err error) {
+	report.OK = false
+	var se *sdk.Error
+	if errors.As(err, &se) {
+		report.Error = &pluginValidateError{Code: se.Code, Message: se.Message, Details: se.Details}
+	} else {
+		report.Error = &pluginValidateError{Code: "UNKNOWN", Message: err.Error()}
+	}
+}
+
+// -----------------------------------------------------------------------------
+// 渲染
+// -----------------------------------------------------------------------------
+
+func render(stdout, stderr io.Writer, report *pluginValidateReport, o *pluginValidateOpts) {
+	if o.JSON {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(report)
+		return
+	}
+	renderText(stdout, stderr, report, o)
+}
+
+func renderText(stdout, stderr io.Writer, report *pluginValidateReport, o *pluginValidateOpts) {
+	if report.Manifest != nil {
+		fmt.Fprintf(stdout, "package: %s\n", report.PackageDir)
+		fmt.Fprintf(stdout, "plugin:  %s@%s (%s)\n", report.Manifest.ID, report.Manifest.Version, report.Manifest.Name)
+	} else {
+		fmt.Fprintf(stdout, "path:    %s\n", report.Path)
+	}
+
+	pass, fail := 0, 0
+	for _, c := range report.Checks {
+		if c.OK {
+			pass++
+			if o.Verbose {
+				fmt.Fprintf(stdout, "  ok   %-11s %s\n", c.Kind, c.Path)
+			}
+		} else {
+			fail++
+			msg := c.Message
+			if c.Code != "" {
+				msg = fmt.Sprintf("[%s] %s", c.Code, msg)
+			}
+			fmt.Fprintf(stderr, "  fail %-11s %s -- %s\n", c.Kind, c.Path, msg)
+		}
+	}
+
+	if report.OK {
+		fmt.Fprintf(stdout, "\nOK: %d checks passed.\n", pass)
+		return
+	}
+
+	if report.Error != nil {
+		fmt.Fprintf(stderr, "\nFAIL: %d passed, %d failed\n", pass, fail)
+		fmt.Fprintf(stderr, "error: [%s] %s\n", report.Error.Code, report.Error.Message)
+		if len(report.Error.Details) > 0 {
+			for _, k := range detailKeys(report.Error.Details) {
+				fmt.Fprintf(stderr, "  %s: %v\n", k, report.Error.Details[k])
+			}
+		}
+	}
+}
+
+// detailKeys 返回稳定顺序的 details key（field / reason 优先，之后按字典序）。
+func detailKeys(d map[string]any) []string {
+	priority := []string{"field", "reason", "layer", "actual", "constraint", "path", "expected"}
+	seen := map[string]struct{}{}
+	out := []string{}
+	for _, k := range priority {
+		if _, ok := d[k]; ok {
+			out = append(out, k)
+			seen[k] = struct{}{}
+		}
+	}
+	// 追加其余键（未排序 —— 但 priority 已覆盖高频字段）
+	for k := range d {
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		out = append(out, k)
+	}
+	return out
+}
