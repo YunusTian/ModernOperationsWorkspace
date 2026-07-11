@@ -5,4 +5,4 @@ package version
 
 // Version is the current source-tree version. Release automation verifies it
 // against the Git tag before building artifacts.
-var Version = "0.4.1"
+var Version = "0.5.0"
