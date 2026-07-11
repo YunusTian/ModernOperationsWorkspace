@@ -180,8 +180,10 @@ go test -count=1 -run TestDockerE2E ./...
 | **v0.3** | Docker Plugin + Docker Dashboard + Workflow 增强（parallel / when / on_failure / retry / rollback / 执行历史 JSONL） | ✅ 已发布（v0.3.0） |
 | **v0.3.1** | 稳定性补丁：Docker 覆盖率 76.0% · JSONL 轮转+跨进程锁 · Windows npipe（go-winio） · TLS exec raw-hijack · Docker E2E 接入 CI | ✅ 已发布 |
 | **v0.4** | AI 可用闭环：OpenAI-compatible Provider + 宿主 tool-use Orchestrator + 决策链路审计 + CLI/Desktop 端到端 | ✅ 已发布（v0.4.0） |
-| **v0.4.1** | GA 收尾：版本一致性、SDK 契约、安装 Smoke、配置迁移 | 🚧 实现完成，待发布 |
-| **v0.5** | 平台产品化：插件 manifest、安装升级、兼容性、配置 UI、诊断与 Marketplace 本地 catalog | 📋 计划中 |
+| **v0.4.1** | GA 收尾：版本一致性、SDK 契约、安装 Smoke、配置迁移 | ✅ 已发布 |
+| **v0.5.0** | 插件平台化 · 地基：Plugin Manifest + `plugin validate` + 兼容性拒绝 | 📋 计划中 |
+| **v0.5.1** | 插件平台化 · 生命周期：install / upgrade / uninstall + 本地 Catalog 雏形 | 📋 计划中 |
+| **v0.5.2** | 插件平台化 · 闭环：Schema 驱动配置 UI + PVE 参考实现 | 📋 计划中 |
 | **v0.6** | Workflow 2.0：版本化、子工作流、审批、调度、通知、SQLite 历史 | 📋 计划中 |
 | **v0.7** | 基础设施扩展：PVE 正式版 + Kubernetes MVP | 📋 计划中 |
 | **v0.8** | 可观测与诊断中心 | 📋 计划中 |

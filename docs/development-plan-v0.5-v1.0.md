@@ -36,9 +36,11 @@ v0.5 到 v1.0 的核心任务，不是继续堆叠页面和命令，而是把 v0
 | 版本 | 主题 | 核心交付 | 前置依赖 |
 | --- | --- | --- | --- |
 | v0.4.1 | GA 收尾 | 版本一致性、SDK 契约测试、安装验收、迁移验证 | v0.4.0 |
-| v0.5 | 插件平台化 | Manifest、生命周期、兼容性、配置 UI、本地 Catalog | v0.4.1 |
-| v0.6 | Workflow 2.0 | 版本化、子工作流、审批、调度、通知、SQLite 历史 | v0.5 |
-| v0.7 | 基础设施扩展 | PVE 正式插件、Kubernetes MVP | v0.5、v0.6 部分能力 |
+| v0.5.0 | Manifest 与包格式 | `plugin.json` schema、`mow plugin validate`、兼容性拒绝启用 | v0.4.1 |
+| v0.5.1 | 插件生命周期 | install / enable / disable / upgrade / uninstall、本地 Catalog 雏形、校验与回退 | v0.5.0 |
+| v0.5.2 | 配置 UI + PVE 参考实现 | Schema 驱动的 CLI/Desktop 配置、PVE 只读闭环验证平台 | v0.5.1 |
+| v0.6 | Workflow 2.0 | 版本化、子工作流、审批、调度、通知、SQLite 历史 | v0.5.2 |
+| v0.7 | 基础设施扩展 | PVE 正式插件、Kubernetes MVP | v0.5.2、v0.6 部分能力 |
 | v0.8 | 可观测与诊断 | 审计查询、诊断中心、指标与 Trace | v0.6 |
 | v0.9 | AI Operations 2.0 | Plan、Dry-run、MCP、本地模型、知识接入 | v0.8 |
 | v1.0 | 稳定承诺 | SDK/Protocol 稳定、迁移、安装升级、长期验证 | v0.5～v0.9 |
@@ -87,7 +89,15 @@ v0.5 到 v1.0 的核心任务，不是继续堆叠页面和命令，而是把 v0
 
 让第三方插件能够被规范地开发、打包、发现、安装、配置、升级、禁用和卸载，并用 PVE 插件验证完整生命周期。
 
+**v0.5 拆分为三个独立可 tag 的子版本**，每个子版本都有独立的发布门槛，可独立回退：
+
+- **v0.5.0**：Plugin Manifest 与包格式（地基）
+- **v0.5.1**：插件生命周期（install / upgrade / uninstall + 本地 Catalog 雏形）
+- **v0.5.2**：Schema 驱动的配置 UI + PVE 参考实现（闭环验证）
+
 ### 4.2 v0.5.0：Plugin Manifest 与包格式
+
+**范围**：只做 Manifest schema、`mow plugin validate` 命令，以及运行时对 Manifest 的强校验。**不做**下载、安装、Catalog、UI。
 
 推荐包结构：
 
@@ -113,14 +123,19 @@ Manifest 至少包含：
 - 数据格式版本与迁移入口
 - 签名和发布来源信息
 
-验收：
+#### 4.2.1 v0.5.0 发布门槛
 
-- [ ] 提供正式 JSON Schema
+- [ ] 提供正式 JSON Schema，位于 `sdk/manifest/plugin.schema.json`
 - [ ] `mow plugin validate <package>` 能返回稳定错误码
-- [ ] Manifest 与运行时 Metadata 不一致时拒绝启用
-- [ ] 兼容范围不满足时在启动子进程前拒绝加载
+- [ ] Manifest 与运行时 Metadata 不一致时拒绝启用，错误码 `PLUGIN_MANIFEST_MISMATCH`
+- [ ] Core / SDK / Protocol 兼容范围不满足时在启动子进程前拒绝加载，错误码 `PLUGIN_INCOMPATIBLE`
+- [ ] 官方 SSH / Docker / AI 三个插件补齐 `plugin.json` 并通过 validate
+- [ ] SDK 契约测试覆盖 Manifest 反序列化、兼容范围解析、错误码稳定性
+- [ ] 未新增破坏性 SDK 或 Plugin Protocol 变更（Manifest 仅补充，运行时协议不变）
 
 ### 4.3 v0.5.1：插件生命周期
+
+**范围**：以 v0.5.0 的 Manifest 为地基，落地插件的 install / enable / disable / upgrade / uninstall CLI 与本地 Catalog 雏形。**不做** Desktop 配置 UI、不做正式 Catalog 服务。
 
 CLI：
 
@@ -135,14 +150,11 @@ mow plugin uninstall
 mow plugin doctor
 ```
 
-Desktop 插件管理页：
+Desktop 插件管理页（v0.5.1 保持最小可用）：
 
-- 已安装插件、版本和健康状态
-- 配置表单与敏感字段输入
-- 权限和 Command 清单
-- 启用、禁用、升级、卸载
-- 兼容性错误和诊断输出
-- 数据迁移状态
+- 已安装插件、版本和健康状态列表
+- 启用、禁用、卸载三个操作
+- 兼容性错误和诊断输出显示
 
 安全要求：
 
@@ -152,20 +164,54 @@ Desktop 插件管理页：
 - 升级失败必须能回退旧二进制和旧 Manifest
 - 插件配置中的 secret 不得进入普通配置明文
 
-### 4.4 v0.5.2：本地 Catalog
+本地 Catalog（v0.5.1 雏形）：
 
-第一版使用静态 JSON Catalog 和 GitHub Release 产物，不建设账号、支付、审核后台。
-
-- 官方 Catalog
-- 自定义私有 Catalog URL
+- 静态 JSON Catalog + GitHub Release 产物
+- 官方 Catalog + 自定义私有 Catalog URL
 - 平台、架构和兼容版本过滤
-- checksum / signature 元数据
 - 缓存和离线读取
 - Catalog 更新失败不影响已安装插件
 
-### 4.5 v0.5.3：插件开发者体验
+#### 4.3.1 v0.5.1 发布门槛
 
-- `mow plugin init`
+- [ ] CLI 八条子命令齐全，错误码稳定
+- [ ] 至少一个插件能从本地 Catalog 完成 install → enable → upgrade → 回退 → uninstall 全链路
+- [ ] 升级失败自动回退旧二进制 + 旧 Manifest，数据不丢
+- [ ] 卸载留存插件数据目录，`--purge` 才真删
+- [ ] Windows / Linux / macOS 三平台 install 路径一致
+- [ ] SHA-256 校验失败拒绝安装并保留错误码
+
+### 4.4 v0.5.2：Schema 驱动的配置 UI + PVE 参考实现
+
+**范围**：以 Manifest 中的 `settingsSchema` 驱动 CLI / Desktop 配置体验；用 PVE 只读插件跑通整个平台闭环。**不做**复杂创建向导、存储迁移、Dangerous 删除。
+
+配置 UI：
+
+- CLI：`mow plugin config <id>` 交互式表单，敏感字段脱敏输入
+- Desktop 插件配置页：Schema 驱动的表单、字段级校验、secret 隔离存储
+- 配置改动即时校验，不重启插件
+
+PVE 参考插件（只读闭环）：
+
+- Cluster / Node / VM / LXC 只读列表
+- 状态和资源摘要
+- start / stop / reboot 三条基本生命周期命令
+- API Token 配置和脱敏
+- fake PVE API 契约测试
+- 使用 Manifest、Catalog、安装、升级完整链路验证
+
+#### 4.4.1 v0.5.2 发布门槛
+
+- [ ] PVE 参考插件不依赖源码仓库内的特殊路径
+- [ ] 第三方开发者仅依赖公开 SDK 和 v0.5 三文档即可完成一个新插件
+- [ ] Manifest `settingsSchema` 能在 CLI 与 Desktop 端渲染为一致表单
+- [ ] Secret 字段在配置文件和日志中均不出现明文
+- [ ] 插件兼容矩阵进入 CI（至少 SSH / Docker / AI / PVE 四款）
+- [ ] 配置、凭据和插件数据有明确生命周期文档
+
+### 4.5 v0.5.3：插件开发者体验（v0.5.2 后追加，可延后到 v0.6 前）
+
+- `mow plugin init` 脚手架
 - 官方示例插件模板
 - SDK conformance test suite
 - fake Core / fake Stream 测试工具
@@ -174,20 +220,11 @@ Desktop 插件管理页：
 - 发布产物生成和 checksum
 - 插件开发、调试、升级、迁移文档
 
-### 4.6 PVE 参考插件
+复杂 PVE 创建向导、存储迁移和高危删除放到 v0.7。
 
-PVE 在 v0.5 只承担“验证新插件平台”的职责：
+### 4.6 v0.5 总体门槛（三子版本合计）
 
-- Cluster / Node / VM / LXC 只读列表
-- 状态和资源摘要
-- start / stop / reboot
-- API Token 配置和脱敏
-- fake PVE API 契约测试
-- 使用 Manifest、Catalog、安装、升级完整链路
-
-复杂创建向导、存储迁移和高危删除放到 v0.7。
-
-### 4.7 v0.5 发布门槛
+以下门槛在 v0.5.2 发布时最终校验一次，等价于旧的"v0.5 发布门槛"：
 
 - [ ] 至少一个插件能从 Catalog 安装、启用、升级、回退、卸载
 - [ ] PVE 参考插件不依赖源码仓库内的特殊路径
