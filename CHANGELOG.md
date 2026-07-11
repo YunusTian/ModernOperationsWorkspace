@@ -7,7 +7,9 @@
 
 ## [Unreleased]
 
-### v0.4.0 AI 可用闭环（发布候选）
+## [v0.4.0] - 2026-07-11
+
+### v0.4.0 AI 可用闭环
 
 - **OpenAI-compatible Provider**（[plugins/ai/openai.go](./plugins/ai/openai.go)）
   - `base_url` / `api_key_env` / 默认模型 / 自定义请求头；一次性 + 流式 Chat；tool_calls 支持
@@ -39,13 +41,24 @@
   - `--json` 输出改为完整 `ChatResponse`（含 usage / finish_reason）
 - **Desktop 接入**（[apps/desktop/ai.go](./apps/desktop/ai.go) + [apps/desktop/frontend/src/pages/AIPage.tsx](./apps/desktop/frontend/src/pages/AIPage.tsx)）
   - 新增 `App.AIAsk(AIAskInput) → AIAskResult`：非流式一次性对话，返回 `Response + Rounds + ToolCalls`
+  - 新增 `App.AIStatus() → AIStatus`：暴露宿主 orchestrator 构造结果，UI 加载时预热
   - 前端 Ask 按钮走 `AIAsk`；`UsageBadges` 显示 `rounds:` / `tools:` / `tokens:` / `finish_reason` 四个 pill 徽章
+  - **配置错误红色横幅**（`.ai-config-alert`）：orchestrator 构造失败（Dangerous / Streaming / Recursive / Unknown Tool）时在 AI 页面顶部立即展示错误码 + 修复建议；纯对话模式显示黄色 `.ai-config-note`
+  - **Retry 按钮**（`.ai-retry`）：错误红条内嵌，一键重放最后一条 user message，Retry 也走 orchestrator（审计一致）
   - Send（流式）与 Ask（orchestrator）共用 usage state，Send 路径由 `ai:<sid>:finish` 事件回填 tokens + finish
+- **E2E 端到端测试**（[tests/e2e/ai_e2e_test.go](./tests/e2e/ai_e2e_test.go)）
+  - Mock provider 走完整 orchestrator 循环，断言 4 类事件序列
+  - OpenAI-compatible provider + httptest fake server：happy path / usage 抵达
+  - 429 → 200 有上限退避重试（1ms base，3 次上游请求恰好触达 200）
+  - tool_call 白名单命令：宿主真实执行 in-process `probePlugin.info` 并把结果作为 `role=tool` 回填模型
+- **人工验收剧本**（[docs/v0.4-manual-acceptance.md](./docs/v0.4-manual-acceptance.md)）：4 场景（对话主路径 / 取消 / 限流 / 工具调用）+ 配置模板 + 打 tag 命令
 - **测试与覆盖率**
   - `core/ai`：**31 个测试，85.0% 覆盖率**（含审计事件序列、拒收分支、Slog 级别、panic 安全）
   - `core/command`：71.3% 覆盖率（递归脱敏 + 4 个新用例）
   - `plugins/ai`：72.3% 覆盖率（含 5 个 retry 用例）
-  - Desktop 前端：`AIPage.test.tsx` 从 1 → 3 个测试，覆盖 Send/Ask/error 三条路径与 4 徽章展示
+  - `apps/cli`：7 个 orchestrator 用例覆盖 Dangerous / Streaming / Recursive AI / Unknown Tool / ctx cancel / provider 错误码传播
+  - Desktop 前端：`AIPage.test.tsx` 5 个测试，覆盖 Send/Ask/error/config-alert/Retry 路径
+  - `tests/e2e/ai_e2e_test.go`：4 个用例覆盖 mock / OpenAI happy / 429 retry / tool_call 白名单
 
 ### v0.4.0 AI Plugin 骨架
 

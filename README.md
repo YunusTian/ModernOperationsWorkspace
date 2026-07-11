@@ -9,7 +9,7 @@
 `Core First` · `AI Optional` · `Plugin Everything`
 
 [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](./LICENSE)
-[![Status](https://img.shields.io/badge/status-v0.4.0--rc%20(AI%20loop)-orange.svg)](./CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.4.0_released-brightgreen.svg)](./CHANGELOG.md)
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8.svg)](https://go.dev)
 [![Wails](https://img.shields.io/badge/Wails-v2-DF0000.svg)](https://wails.io)
 
@@ -164,11 +164,11 @@ go test -count=1 -run TestDockerE2E ./...
 **自动化测试通过：76/76 | E2E 通过：23/23 | 手动验收：42/42**  
 详见 [v0.1 验收清单](./docs/v0.1-acceptance-checklist.md)
 
-### 最新交付（v0.3.1 已发布 · v0.4.0-rc AI 可用闭环合入主分支）
+### 最新交付（v0.4.0 已发布 · AI 可用闭环）
 
 - **v0.3.0**（[CHANGELOG](./CHANGELOG.md#v030---2026-07-10)）：Docker Plugin（unix / tcp / tcp+TLS · 13 条命令）+ Docker Dashboard + Workflow 五批增强（when / retry / on_failure / rollback / parallel / JSONL 历史）
 - **v0.3.1**（[CHANGELOG](./CHANGELOG.md#v031---2026-07-10)）：稳定性补丁 —— `plugins/docker` 覆盖率 **76.0%**；JSONL 轮转 + 保留策略 + 损坏行恢复 + 跨进程锁（`flock` / `LockFileEx`）；Windows `npipe://` 真实实现（go-winio）；TLS `docker.exec` raw-hijack；Docker E2E 接入常规 CI pipeline
-- **v0.4.0-rc**（[CHANGELOG](./CHANGELOG.md#unreleased) · [v0.4 验收清单](./docs/v0.4-acceptance-checklist.md)）：AI 可用闭环 —— OpenAI-compatible Provider（含有上限退避重试）+ 宿主 tool-use Orchestrator（Tool 目录自动派生 + 五道护栏 + 结果截断）+ 参数递归脱敏 + 完整决策链路审计（5 类事件 + SlogAuditor）+ CLI/Desktop 双端接入（`mow ai ask` 走 orchestrator，Desktop `AIAsk` + `UsageBadges`）；剩余 E2E 与真实 Provider 人工验收后打正式 tag
+- **v0.4.0**（[CHANGELOG](./CHANGELOG.md#v040---2026-07-11) · [v0.4 验收清单](./docs/v0.4-acceptance-checklist.md)）：AI 可用闭环 —— OpenAI-compatible Provider（含有上限退避重试）+ 宿主 tool-use Orchestrator（Tool 目录自动派生 + 五道护栏 + 结果截断）+ 参数递归脱敏 + 完整决策链路审计（5 类事件 + SlogAuditor）+ CLI/Desktop 双端接入（`mow ai ask` 走 orchestrator，Desktop `AIAsk` + `UsageBadges` + `AIStatus` 配置横幅 + Retry 按钮）
 
 ## Roadmap
 
@@ -178,7 +178,7 @@ go test -count=1 -run TestDockerE2E ./...
 | **v0.2** | Command / Recipe / Workflow Engine（YAML DSL + `${var}` 插值 + Runner） | ✅ 已发布 |
 | **v0.3** | Docker Plugin + Docker Dashboard + Workflow 增强（parallel / when / on_failure / retry / rollback / 执行历史 JSONL） | ✅ 已发布（v0.3.0） |
 | **v0.3.1** | 稳定性补丁：Docker 覆盖率 76.0% · JSONL 轮转+跨进程锁 · Windows npipe（go-winio） · TLS exec raw-hijack · Docker E2E 接入 CI | ✅ 已发布 |
-| **v0.4** | AI 可用闭环：OpenAI-compatible Provider + 宿主 tool-use Orchestrator + 决策链路审计 + CLI/Desktop 端到端 | 🚧 rc 主线合入（剩 E2E + 人工验收） |
+| **v0.4** | AI 可用闭环：OpenAI-compatible Provider + 宿主 tool-use Orchestrator + 决策链路审计 + CLI/Desktop 端到端 | ✅ 已发布（v0.4.0） |
 | **v0.5** | 平台产品化：插件 manifest、安装升级、兼容性、配置 UI、诊断与 Marketplace 本地 catalog | 📋 计划中 |
 
 详见 [docs/roadmap.md](./docs/roadmap.md)。
