@@ -16,6 +16,10 @@ import (
 
 // Config 是 MOW 的运行时配置。
 type Config struct {
+	// Version is the on-disk config schema version. Files created before v0.4.1
+	// omitted it and are migrated from legacy version 0 during Load.
+	Version int `json:"version"`
+
 	// App 全局应用设置
 	App AppConfig `json:"app"`
 
@@ -30,6 +34,8 @@ type Config struct {
 	// Plugins 插件的 Enable / 设置
 	Plugins map[string]PluginConfig `json:"plugins"`
 }
+
+const CurrentVersion = 1
 
 // AIConfig 是宿主侧 AI orchestrator 的可选配置。
 //
@@ -79,6 +85,7 @@ func Default() Config {
 	home, _ := os.UserHomeDir()
 	dataDir := filepath.Join(home, ".mow")
 	return Config{
+		Version: CurrentVersion,
 		App: AppConfig{
 			DataDir:    dataDir,
 			PluginsDir: filepath.Join(dataDir, "plugins"),
@@ -112,6 +119,14 @@ func Load(path string) (Config, error) {
 	if cfg.Plugins == nil {
 		cfg.Plugins = map[string]PluginConfig{}
 	}
+	if cfg.Version == 0 {
+		// v0.1-v0.4 used the same JSON fields without a schema version. Applying
+		// defaults before Unmarshal already supplies newly introduced fields.
+		cfg.Version = CurrentVersion
+	}
+	if cfg.Version > CurrentVersion {
+		return Config{}, fmt.Errorf("config: schema version %d is newer than supported version %d", cfg.Version, CurrentVersion)
+	}
 	return cfg, nil
 }
 
@@ -122,6 +137,12 @@ func Save(path string, cfg Config) error {
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("config: mkdir: %w", err)
+	}
+	if cfg.Version == 0 {
+		cfg.Version = CurrentVersion
+	}
+	if cfg.Version > CurrentVersion {
+		return fmt.Errorf("config: cannot save unsupported schema version %d", cfg.Version)
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {

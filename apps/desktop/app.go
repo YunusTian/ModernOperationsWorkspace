@@ -28,6 +28,7 @@ import (
 	"github.com/mow/mow/core/workflow/history"
 	"github.com/mow/mow/sdk"
 	"github.com/mow/mow/sdk/pluginclient"
+	"github.com/mow/mow/sdk/version"
 )
 
 // App 是绑定到 Wails 前端的顶层对象。
@@ -69,6 +70,10 @@ type App struct {
 	wfMu  sync.Mutex
 	wfReg *recipe.Registry
 }
+
+// Version returns the application version injected from the repository-wide
+// version package. Wails exposes it to the frontend through the App binding.
+func (a *App) Version() string { return version.Version }
 
 // NewApp 装配 Logger / Config / ConnMgr / PluginManager / Engine。
 func NewApp() (*App, error) {

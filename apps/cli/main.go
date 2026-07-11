@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mow/mow/sdk/version"
 	"github.com/spf13/cobra"
 )
 
@@ -49,6 +50,7 @@ func newRootCmd() *cobra.Command {
 	appHolder := &appHolder{configPath: &configPath}
 
 	root.AddCommand(
+		&cobra.Command{Use: "version", Short: "Print MOW version", Args: cobra.NoArgs, Run: func(cmd *cobra.Command, _ []string) { fmt.Fprintln(cmd.OutOrStdout(), version.Version) }},
 		newTargetCmd(appHolder),
 		newRunCmd(appHolder),
 		newRecipeCmd(appHolder),

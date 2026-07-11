@@ -53,6 +53,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve and verify version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$VERSION" != "$TAG" ]; then
+            echo "VERSION ($VERSION) does not match tag ($TAG)" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -62,13 +75,14 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          MOW_VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           BIN="mow${{ matrix.goos == 'windows' && '.exe' || '' }}"
           tar_name="mow-${{ matrix.target }}-${{ matrix.arch }}.tar.gz"
           cd apps/cli
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "../../${BIN}" .
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/mow/mow/sdk/version.Version=${MOW_VERSION}" -o "../../${BIN}" .
           cd ../..
           tar -czf "${tar_name}" "${BIN}"
           rm -f "${BIN}"
@@ -78,13 +92,14 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          MOW_VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           BIN="mow-ssh-plugin${{ matrix.goos == 'windows' && '.exe' || '' }}"
           tar_name="mow-ssh-plugin-${{ matrix.target }}-${{ matrix.arch }}.tar.gz"
           cd plugins/ssh
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "../../${BIN}" .
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/mow/mow/sdk/version.Version=${MOW_VERSION}" -o "../../${BIN}" .
           cd ../..
           tar -czf "${tar_name}" "${BIN}"
           rm -f "${BIN}"
@@ -94,13 +109,14 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          MOW_VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           BIN="mow-docker-plugin${{ matrix.goos == 'windows' && '.exe' || '' }}"
           tar_name="mow-docker-plugin-${{ matrix.target }}-${{ matrix.arch }}.tar.gz"
           cd plugins/docker
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "../../${BIN}" .
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/mow/mow/sdk/version.Version=${MOW_VERSION}" -o "../../${BIN}" .
           cd ../..
           tar -czf "${tar_name}" "${BIN}"
           rm -f "${BIN}"
@@ -110,13 +126,14 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          MOW_VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           BIN="mow-ai-plugin${{ matrix.goos == 'windows' && '.exe' || '' }}"
           tar_name="mow-ai-plugin-${{ matrix.target }}-${{ matrix.arch }}.tar.gz"
           cd plugins/ai
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "../../${BIN}" .
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/mow/mow/sdk/version.Version=${MOW_VERSION}" -o "../../${BIN}" .
           cd ../..
           tar -czf "${tar_name}" "${BIN}"
           rm -f "${BIN}"
@@ -126,6 +143,7 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          MOW_VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
@@ -135,7 +153,7 @@ jobs:
           # Wails 桌面端需要 CGO，交叉编译受限于平台能力；
           # 非原生平台编译可能会跳过（Wails 不支持纯交叉编译）。
           # 此处仅尝试 go build，失败不阻塞。
-          CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o "../../${BIN}" . 2>/dev/null || true
+          CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -X github.com/mow/mow/sdk/version.Version=${MOW_VERSION}" -o "../../${BIN}" . 2>/dev/null || true
           cd ../..
           if [ -f "${BIN}" ]; then
             tar -czf "${tar_name}" "${BIN}"
@@ -166,12 +184,51 @@ jobs:
             *.sha256
           retention-days: 1
 
+  smoke:
+    name: install-smoke (${{ matrix.target }}/${{ matrix.arch }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: linux, arch: amd64 }
+          - { os: windows-latest, target: windows, arch: amd64 }
+          - { os: macos-latest, target: darwin, arch: arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries-${{ matrix.target }}-${{ matrix.arch }}
+          path: artifacts
+      - name: Verify archive checksums (Unix)
+        if: runner.os != 'Windows'
+        working-directory: artifacts
+        run: shasum -a 256 -c *.sha256
+      - name: Verify archive checksums (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem artifacts -Filter *.tar.gz | ForEach-Object {
+            $expectedFile = "$($_.FullName).sha256"
+            $expected = (Get-Content -LiteralPath $expectedFile).Split(' ')[0].Trim()
+            $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+            if ($actual -ne $expected.ToLowerInvariant()) { throw "checksum mismatch: $($_.Name)" }
+          }
+      - name: Run install smoke (Unix)
+        if: runner.os != 'Windows'
+        run: bash scripts/release-smoke.sh artifacts ${{ matrix.target }} ${{ matrix.arch }}
+      - name: Run install smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\scripts\release-smoke.ps1 -ArtifactDir artifacts -Target ${{ matrix.target }} -Arch ${{ matrix.arch }}
+
   # =========================================================================
   # 创建 GitHub Release 并上传所有二进制
   # =========================================================================
   release:
     name: release
-    needs: build
+    needs: [build, smoke]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -207,8 +264,7 @@ jobs:
           if [ -f "$CANDIDATE" ]; then
             echo "path=$CANDIDATE" >> "$GITHUB_OUTPUT"
           else
-            # 兜底：按最新发布版本使用 v0.3
-            echo "path=docs/v0.3-acceptance-checklist.md" >> "$GITHUB_OUTPUT"
+            echo "path=docs/v0.4.1-acceptance-checklist.md" >> "$GITHUB_OUTPUT"
           fi
           echo "resolved body_path: $(cat "$GITHUB_OUTPUT" | grep '^path=' | cut -d= -f2)"
 

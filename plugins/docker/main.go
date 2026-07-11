@@ -19,6 +19,7 @@ import (
 
 	"github.com/mow/mow/sdk"
 	"github.com/mow/mow/sdk/pluginserve"
+	"github.com/mow/mow/sdk/version"
 )
 
 // DockerPlugin 是 MOW 官方 Docker 插件。
@@ -32,10 +33,10 @@ func (p *DockerPlugin) Metadata() sdk.Metadata {
 	return sdk.Metadata{
 		ID:              "docker",
 		Name:            "Docker",
-		Version:         "0.3.0",
+		Version:         version.Version,
 		Author:          "mow",
 		Description:     "Docker container lifecycle and log streaming",
-		CoreVersion:     ">=0.1.0",
+		CoreVersion:     ">=0.4.0,<0.5.0",
 		ConnectionTypes: []string{"docker"},
 	}
 }

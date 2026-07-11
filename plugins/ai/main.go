@@ -17,6 +17,7 @@ import (
 
 	"github.com/mow/mow/sdk"
 	"github.com/mow/mow/sdk/pluginserve"
+	"github.com/mow/mow/sdk/version"
 )
 
 // -----------------------------------------------------------------------------
@@ -40,7 +41,7 @@ func (p *AIPlugin) Metadata() sdk.Metadata {
 	return sdk.Metadata{
 		ID:              "ai",
 		Name:            "AI",
-		Version:         "0.4.0-alpha",
+		Version:         version.Version,
 		Author:          "mow",
 		Description:     "AI Provider abstraction (chat / tool-use)",
 		CoreVersion:     ">=0.1.0",

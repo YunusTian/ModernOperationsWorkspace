@@ -17,6 +17,7 @@ import (
 
 	"github.com/mow/mow/sdk"
 	"github.com/mow/mow/sdk/pluginserve"
+	"github.com/mow/mow/sdk/version"
 )
 
 // SSHPlugin 是 MOW 官方 SSH 插件。
@@ -33,10 +34,10 @@ func (p *SSHPlugin) Metadata() sdk.Metadata {
 	return sdk.Metadata{
 		ID:              "ssh",
 		Name:            "SSH",
-		Version:         "0.1.0",
+		Version:         version.Version,
 		Author:          "mow",
 		Description:     "SSH remote execution, interactive shell, and SFTP file transfer",
-		CoreVersion:     ">=0.1.0,<0.2.0",
+		CoreVersion:     ">=0.4.0,<0.5.0",
 		ConnectionTypes: []string{"ssh"},
 	}
 }

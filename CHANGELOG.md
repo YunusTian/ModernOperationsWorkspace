@@ -7,6 +7,18 @@
 
 ## [Unreleased]
 
+## [v0.4.1] - 2026-07-11
+
+### GA 工程化收尾
+
+- 新增根 `VERSION` 与 `sdk/version` 统一版本源；CLI、Desktop、SSH/Docker/AI 官方插件和前端统一为 `0.4.1`
+- CLI 新增 `mow version`；Desktop 标题和 Wails binding 暴露相同版本
+- SDK 新增公共契约与 gRPC 边界测试，覆盖插件校验、错误、AI JSON、枚举、握手、连接信封和转换往返
+- 配置文件新增 schema version；无版本的 v0.3/v0.4 配置安全迁移，未来版本明确拒绝
+- Release Workflow 校验 tag 与 `VERSION`，通过 ldflags 注入版本
+- 新增 Linux amd64、Windows amd64、macOS arm64 Release archive 安装 Smoke；真实解压 CLI/AI 插件并执行 `mow ai providers`
+- 完整清单见 [docs/v0.4.1-acceptance-checklist.md](./docs/v0.4.1-acceptance-checklist.md)
+
 ## [v0.4.0] - 2026-07-11
 
 ### v0.4.0 AI 可用闭环
@@ -278,7 +290,9 @@ v0.3 主线：**Docker Plugin + Docker Dashboard + Workflow 引擎增强**。完
 - **E2E 测试体系**：Fake SSH Server + Test Rig，覆盖 exec / recipe / SFTP / Shell / 连接池等 23 个用例
 - **16 篇设计文档**：架构总纲、各模块 RFC、验收清单、Roadmap 等
 
-[Unreleased]: https://github.com/mow/mow/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/mow/mow/compare/v0.4.1...HEAD
+[v0.4.1]: https://github.com/mow/mow/compare/v0.4.0...v0.4.1
+[v0.4.0]: https://github.com/mow/mow/releases/tag/v0.4.0
 [v0.3.1]: https://github.com/mow/mow/releases/tag/v0.3.1
 [v0.3.0]: https://github.com/mow/mow/releases/tag/v0.3.0
 [v0.2.0]: https://github.com/mow/mow/releases/tag/v0.2.0
