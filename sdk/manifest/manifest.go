@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -318,8 +319,8 @@ func (m *Manifest) validatePlatforms() error {
 		if strings.TrimSpace(p.Entrypoint) == "" {
 			return newError(ErrCodeManifestInvalid, "entrypoint is required", field+".entrypoint", "empty")
 		}
-		if strings.HasPrefix(p.Entrypoint, "/") || strings.Contains(p.Entrypoint, "..") || strings.Contains(p.Entrypoint, `\`) {
-			return newError(ErrCodeManifestInvalid, "entrypoint must be a relative package-local path", field+".entrypoint", "must be relative, no .. and no backslash")
+		if !isPackageLocalPath(p.Entrypoint) {
+			return newError(ErrCodeManifestInvalid, "entrypoint must be a relative package-local path", field+".entrypoint", "must be a clean relative path without volume or backslash")
 		}
 		if !checksumPattern.MatchString(p.Checksum) {
 			return newError(ErrCodeManifestInvalid, "checksum must be sha256:<hex64>", field+".checksum", "invalid checksum format")
@@ -401,9 +402,9 @@ func (m *Manifest) validateResources(kind string, items []Resource) error {
 			return newError(ErrCodeManifestInvalid,
 				fmt.Sprintf("%s path is required", kind), field+".path", "empty")
 		}
-		if strings.HasPrefix(r.Path, "/") || strings.Contains(r.Path, "..") || strings.Contains(r.Path, `\`) {
+		if !isPackageLocalPath(r.Path) {
 			return newError(ErrCodeManifestInvalid,
-				fmt.Sprintf("%s path must be relative", kind), field+".path", "must be relative, no .. and no backslash")
+				fmt.Sprintf("%s path must be relative", kind), field+".path", "must be a clean relative path without volume or backslash")
 		}
 		if prev, dup := seenID[r.ID]; dup {
 			return newError(ErrCodeManifestInvalid,
@@ -430,8 +431,21 @@ func (m *Manifest) validateMigrations() error {
 		if mg.To <= mg.From {
 			return newError(ErrCodeManifestInvalid, "migration.to must be > migration.from", field+".to", "to <= from")
 		}
+		if mg.Entrypoint != "" && !isPackageLocalPath(mg.Entrypoint) {
+			return newError(ErrCodeManifestInvalid, "migration entrypoint must be a relative package-local path", field+".entrypoint", "must be a clean relative path without volume or backslash")
+		}
 	}
 	return nil
+}
+
+// isPackageLocalPath accepts slash-separated paths that stay inside the
+// plugin package on every supported operating system.
+func isPackageLocalPath(value string) bool {
+	if value == "" || strings.Contains(value, `\`) || strings.Contains(value, ":") || path.IsAbs(value) {
+		return false
+	}
+	cleaned := path.Clean(value)
+	return cleaned != "." && cleaned == value && cleaned != ".." && !strings.HasPrefix(cleaned, "../")
 }
 
 func (m *Manifest) validateSignature() error {

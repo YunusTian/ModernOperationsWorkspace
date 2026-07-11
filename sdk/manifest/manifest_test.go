@@ -261,6 +261,24 @@ func TestValidate_FieldFailures(t *testing.T) {
 			field: "migrations[0].to",
 		},
 		{
+			name: "migration entrypoint escapes package",
+			mut: func(d *map[string]any) {
+				(*d)["migrations"] = []any{
+					map[string]any{"from": 1, "to": 2, "entrypoint": "../migrate"},
+				}
+			},
+			field: "migrations[0].entrypoint",
+		},
+		{
+			name: "windows absolute entrypoint",
+			mut: func(d *map[string]any) {
+				(*d)["platforms"] = []any{
+					map[string]any{"os": "windows", "arch": "amd64", "entrypoint": "C:/plugin.exe", "checksum": "sha256:" + strings.Repeat("a", 64)},
+				}
+			},
+			field: "platforms[0].entrypoint",
+		},
+		{
 			name: "unknown signature algorithm",
 			mut: func(d *map[string]any) {
 				(*d)["signature"] = map[string]any{"algorithm": "rot13", "value": "x"}
@@ -280,6 +298,17 @@ func TestValidate_FieldFailures(t *testing.T) {
 			assertErrCode(t, err, manifest.ErrCodeManifestInvalid)
 			assertField(t, err, tc.field)
 		})
+	}
+}
+
+func TestValidate_AllowsDotsInsidePackageFilename(t *testing.T) {
+	raw := mutated(t, func(d *map[string]any) {
+		(*d)["platforms"] = []any{
+			map[string]any{"os": "linux", "arch": "amd64", "entrypoint": "bin/plugin..debug", "checksum": "sha256:" + strings.Repeat("a", 64)},
+		}
+	})
+	if _, err := manifest.Parse(raw); err != nil {
+		t.Fatalf("Parse() rejected package-local filename: %v", err)
 	}
 }
 
