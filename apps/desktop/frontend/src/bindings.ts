@@ -350,6 +350,30 @@ export type DockerExecExitEvent = {
   error?: string;
 };
 
+// -----------------------------------------------------------------------------
+// Plugin Manager（v0.5.1）
+// -----------------------------------------------------------------------------
+
+export type PluginHealth = "ok" | "incompatible" | "broken";
+
+export type PluginVM = {
+  id: string;
+  name?: string;
+  version: string;
+  author?: string;
+  description?: string;
+  enabled: boolean;
+  installed_at?: string;
+  package_dir: string;
+  health: PluginHealth;
+  health_error?: string;
+  health_code?: string;
+  health_details?: Record<string, unknown>;
+  commands?: string[];
+  compatibility_core?: string;
+  platform?: string;
+};
+
 // 通过 wails 运行时 (window.go.main.App) 调用方法；
 // 若绑定不存在（如 vite dev 未连上 wails），返回一个明确错误便于排查。
 function call<T = unknown>(name: string, ...args: unknown[]): Promise<T> {
@@ -436,6 +460,14 @@ export const App = {
     call<void>("DockerExecResize", sessionID, rows, cols),
   DockerExecClose: (sessionID: string) =>
     call<void>("DockerExecClose", sessionID),
+
+  // v0.5.1 Plugin Manager
+  ListPlugins: () => call<PluginVM[]>("ListPlugins"),
+  SetPluginEnabled: (id: string, enabled: boolean) =>
+    call<PluginVM>("SetPluginEnabled", id, enabled),
+  UninstallPlugin: (id: string, purge: boolean) =>
+    call<void>("UninstallPlugin", id, purge),
+  DoctorPlugin: (id: string) => call<PluginVM>("DoctorPlugin", id),
 };
 
 // -----------------------------------------------------------------------------

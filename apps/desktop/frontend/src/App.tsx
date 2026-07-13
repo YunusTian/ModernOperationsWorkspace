@@ -5,9 +5,10 @@ import SftpPage from "./pages/SftpPage";
 import WorkflowPage from "./pages/WorkflowPage";
 import DockerPage from "./pages/DockerPage";
 import AIPage from "./pages/AIPage";
+import PluginsPage from "./pages/PluginsPage";
 import { App as Api } from "./bindings";
 
-type Tab = "targets" | "terminal" | "sftp" | "workflow" | "docker" | "ai";
+type Tab = "targets" | "terminal" | "sftp" | "workflow" | "docker" | "ai" | "plugins";
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("targets");
@@ -85,6 +86,12 @@ export default function App() {
           <button className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}>
             AI
           </button>
+          <button
+            className={tab === "plugins" ? "active" : ""}
+            onClick={() => setTab("plugins")}
+          >
+            Plugins
+          </button>
         </nav>
       </aside>
       <main className="main">
@@ -123,6 +130,7 @@ export default function App() {
         )}
         {tab === "workflow" && <WorkflowPage activeTarget={activeTarget} />}
         {tab === "ai" && <AIPage />}
+        {tab === "plugins" && <PluginsPage />}
       </main>
     </div>
   );

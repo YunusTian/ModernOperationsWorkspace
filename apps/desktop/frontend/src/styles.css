@@ -787,3 +787,42 @@ body,
 .ai-config-note code { background: rgba(255,255,255,.06); padding: 1px 4px; border-radius: 3px; }
 .ai-retry { margin-left: 8px; padding: 2px 10px; border: 1px solid #6a2a2a; background: #3a1a1a; color: #f5c8c8; border-radius: 4px; cursor: pointer; font-size: 12px; }
 .ai-retry:hover { background: #4a1f1f; }
+
+/* ---------------------------------------------------------------
+   Plugin Manager (v0.5.1)
+---------------------------------------------------------------- */
+
+.pl-page { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.pl-body { flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 16px; }
+.pl-row-selected td { background: #1c3555 !important; }
+.pl-health { font-family: "Menlo", "Consolas", monospace; }
+.pl-health-ok { background: #1f5c2e; color: #b7f0be; }
+.pl-health-incompatible { background: #4a3f00; color: #ffe08a; }
+.pl-health-broken { background: #4a2020; color: #f6b3b3; }
+.pl-switch { display: inline-flex; align-items: center; gap: 6px; color: #ccc; font-size: 12px; cursor: pointer; }
+.pl-danger { color: #f6b3b3 !important; border-color: #6a2a2a !important; }
+.pl-danger:hover { background: #3a1a1a !important; }
+
+.pl-detail { padding: 12px; background: #252526; border: 1px solid #333; border-radius: 6px; }
+.pl-detail-hd { display: flex; align-items: baseline; gap: 10px; }
+.pl-detail-hd b { font-size: 15px; }
+.pl-detail-sub { color: #888; font-size: 12px; font-family: "Menlo", "Consolas", monospace; }
+.pl-detail-desc { color: #bbb; font-size: 13px; margin: 6px 0 12px; }
+.pl-detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 16px; margin-bottom: 10px; }
+.pl-detail-grid > div { display: flex; flex-direction: column; gap: 2px; }
+.pl-detail-grid label { color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+.pl-code { color: #cfe4ff; font-family: "Menlo", "Consolas", monospace; font-size: 12px; word-break: break-all; }
+.pl-detail-cmds { margin-top: 8px; }
+.pl-detail-cmds > label { color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; display: block; margin-bottom: 4px; }
+.pl-detail-cmds .pill { margin: 2px 4px 2px 0; background: #1a2c40; border-color: #2a4a6a; color: #cfe4ff; }
+
+.pl-diagnostics { margin-top: 12px; padding: 10px 12px; border-radius: 6px; border: 1px solid; }
+.pl-diag-incompat { background: #2b2410; border-color: #6a5a2a; color: #ffe08a; }
+.pl-diag-broken { background: #2a1414; border-color: #6a2a2a; color: #f6b3b3; }
+.pl-diag-hd { font-weight: bold; display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.pl-diag-code { font-family: "Menlo", "Consolas", monospace; font-size: 11px; background: rgba(0,0,0,0.4); padding: 1px 6px; border-radius: 3px; }
+.pl-diagnostics pre { margin: 4px 0; padding: 6px 8px; background: rgba(0,0,0,0.3); border-radius: 4px; font-family: "Menlo", "Consolas", monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+.pl-diag-details { margin-top: 6px; font-size: 12px; border-collapse: collapse; }
+.pl-diag-details th { text-align: left; padding: 2px 12px 2px 0; color: #bbb; font-weight: normal; vertical-align: top; }
+.pl-diag-details td { padding: 2px 0; }
+
