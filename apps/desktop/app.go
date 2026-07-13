@@ -196,11 +196,7 @@ func (a *App) ensurePlugin(ctx context.Context, id string) error {
 	// 若已在 PluginManager 中注册（任意状态），只需确保启用
 	if e, ok := a.plugMgr.Get(id); ok {
 		if e.State != plugin.StateEnabled {
-			pc := a.cfg.Plugins[id]
-			if err := a.plugMgr.Enable(ctx, id, sdk.InitRequest{
-				Settings: pc.Settings,
-				DataDir:  filepath.Join(a.cfg.App.DataDir, "plugin-data"),
-			}); err != nil {
+			if err := a.plugMgr.Enable(ctx, id, a.buildInitRequest(id)); err != nil {
 				return fmt.Errorf("enable plugin %q: %w", id, err)
 			}
 		}
@@ -223,10 +219,7 @@ func (a *App) ensurePlugin(ctx context.Context, id string) error {
 		// 并发调用可能已抢先注册，降级处理
 		if e, ok2 := a.plugMgr.Get(id); ok2 {
 			if e.State != plugin.StateEnabled {
-				if err2 := a.plugMgr.Enable(ctx, id, sdk.InitRequest{
-					Settings: a.cfg.Plugins[id].Settings,
-					DataDir:  filepath.Join(a.cfg.App.DataDir, "plugin-data"),
-				}); err2 != nil {
+				if err2 := a.plugMgr.Enable(ctx, id, a.buildInitRequest(id)); err2 != nil {
 					return fmt.Errorf("enable plugin %q: %w", id, err2)
 				}
 			}
@@ -238,11 +231,7 @@ func (a *App) ensurePlugin(ctx context.Context, id string) error {
 		return fmt.Errorf("register plugin %q: %w", id, err)
 	}
 
-	pc := a.cfg.Plugins[id]
-	if err := a.plugMgr.Enable(ctx, id, sdk.InitRequest{
-		Settings: pc.Settings,
-		DataDir:  filepath.Join(a.cfg.App.DataDir, "plugin-data"),
-	}); err != nil {
+	if err := a.plugMgr.Enable(ctx, id, a.buildInitRequest(id)); err != nil {
 		lp.Close()
 		return fmt.Errorf("enable plugin %q: %w", id, err)
 	}

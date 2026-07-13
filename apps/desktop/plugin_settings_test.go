@@ -124,7 +124,7 @@ func TestSetPluginSettingsValidatesAndRedacts(t *testing.T) {
 		t.Fatal("expected validation error for port")
 	}
 
-	// 正常写入 + secret 值不会被 redact 存回磁盘
+	// 正常写入：secret 落 sidecar，config.json 只留非 secret
 	vm, err := a.SetPluginSettings("demo", json.RawMessage(`{"port":2222,"api_key":"sk-live"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -133,13 +133,28 @@ func TestSetPluginSettingsValidatesAndRedacts(t *testing.T) {
 	if !strings.Contains(string(vm.Settings), `"api_key":"***"`) {
 		t.Fatalf("api_key should be redacted in VM: %s", vm.Settings)
 	}
-	// 磁盘上 api_key 应保留明文
+	// config.json 不应包含 secret 明文
 	raw, err := os.ReadFile(filepath.Join(a.cfg.App.DataDir, "config.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `"sk-live"`) {
-		t.Fatalf("api_key should be stored plainly on disk: %s", string(raw))
+	if strings.Contains(string(raw), `sk-live`) {
+		t.Fatalf("secret leaked into config.json: %s", string(raw))
+	}
+	if strings.Contains(string(raw), `api_key`) {
+		t.Fatalf("secret key name should not appear in config.json: %s", string(raw))
+	}
+	if !strings.Contains(string(raw), `"port": 2222`) {
+		t.Fatalf("non-secret should be persisted: %s", string(raw))
+	}
+	// sidecar 应存明文
+	sidecar := filepath.Join(a.cfg.App.DataDir, "plugin-secrets", "demo.json")
+	sidecarRaw, err := os.ReadFile(sidecar)
+	if err != nil {
+		t.Fatalf("sidecar not written: %v", err)
+	}
+	if !strings.Contains(string(sidecarRaw), `sk-live`) {
+		t.Fatalf("sidecar should hold secret plainly: %s", sidecarRaw)
 	}
 }
 
@@ -161,13 +176,22 @@ func TestSetPluginSettingsPreservesSecretsWhenPatchIsRedacted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 结果里 secret 应仍然是原值（磁盘视角）
+	// config.json 只保留 port
 	raw, _ := os.ReadFile(filepath.Join(a.cfg.App.DataDir, "config.json"))
-	if !strings.Contains(string(raw), `"sk-original"`) {
-		t.Fatalf("secret should be preserved when patch is '***': %s", string(raw))
+	if strings.Contains(string(raw), `sk-original`) {
+		t.Fatalf("secret leaked into config.json: %s", string(raw))
 	}
 	if !strings.Contains(string(raw), `"port": 9`) {
 		t.Fatalf("port change should be persisted: %s", string(raw))
+	}
+	// sidecar 里 secret 应保留原值
+	sidecar := filepath.Join(a.cfg.App.DataDir, "plugin-secrets", "demo.json")
+	sidecarRaw, err := os.ReadFile(sidecar)
+	if err != nil {
+		t.Fatalf("sidecar missing: %v", err)
+	}
+	if !strings.Contains(string(sidecarRaw), `sk-original`) {
+		t.Fatalf("sidecar should retain original secret: %s", sidecarRaw)
 	}
 	// VM 仍脱敏
 	if !strings.Contains(string(vm.Settings), `"api_key":"***"`) {

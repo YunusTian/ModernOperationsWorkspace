@@ -13,6 +13,7 @@ import (
 	"github.com/mow/mow/core/command"
 	"github.com/mow/mow/core/config"
 	"github.com/mow/mow/core/logger"
+	"github.com/mow/mow/core/plugin/settings"
 	"github.com/mow/mow/sdk"
 )
 
@@ -20,10 +21,23 @@ import (
 // 插件加载封装
 // -----------------------------------------------------------------------------
 
-// pluginInitRequest 构造 sdk.InitRequest。
-func pluginInitRequest(pc config.PluginConfig, cfg config.Config) sdk.InitRequest {
+// pluginInitRequest 构造 sdk.InitRequest。v0.5.2 P1 起：如果 <DataDir>/plugin-secrets/<id>.json
+// 存在，就在传给插件前把 secret sidecar 合并回 pc.Settings，让插件收到完整数据。
+// 合并失败不阻塞启动，只记录一次告警到 stderr（避免日志系统写明文）。
+func pluginInitRequest(id string, pc config.PluginConfig, cfg config.Config) sdk.InitRequest {
+	merged := pc.Settings
+	if cfg.App.DataDir != "" {
+		store := settings.NewStoreFromDataDir(cfg.App.DataDir)
+		if sec, ok, err := store.Load(id); err == nil && ok {
+			if out, mErr := settings.Merge(merged, sec); mErr == nil {
+				merged = out
+			} else {
+				fmt.Fprintf(os.Stderr, "plugin %s: merge secret sidecar: %v\n", id, mErr)
+			}
+		}
+	}
 	return sdk.InitRequest{
-		Settings: pc.Settings,
+		Settings: merged,
 		DataDir:  filepath.Join(cfg.App.DataDir, "plugin-data"),
 	}
 }

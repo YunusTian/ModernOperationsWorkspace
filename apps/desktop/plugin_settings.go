@@ -16,6 +16,7 @@ import (
 	"github.com/mow/mow/core/config"
 	coreplugin "github.com/mow/mow/core/plugin"
 	"github.com/mow/mow/core/plugin/settings"
+	"github.com/mow/mow/sdk"
 	"github.com/mow/mow/sdk/manifest"
 )
 
@@ -62,6 +63,10 @@ func (a *App) GetPluginSchema(id string) (PluginSettingsVM, error) {
 
 // SetPluginSettings 校验并写回完整的 settings JSON。
 // patch 必须是 object；secret 字段值为 "***" 时会保留原值（避免 UI 把脱敏值写回）。
+//
+// v0.5.2 P1 后半：secret 与 config.json 隔离存储：
+//   - 明文的 secret 只经过内存，最终落到 <DataDir>/plugin-secrets/<id>.json（0600）
+//   - config.json 里 plugins.<id>.settings 只保留非 secret 字段
 func (a *App) SetPluginSettings(id string, patch json.RawMessage) (PluginSettingsVM, error) {
 	if id == "" {
 		return PluginSettingsVM{}, fmt.Errorf("id is required")
@@ -70,11 +75,15 @@ func (a *App) SetPluginSettings(id string, patch json.RawMessage) (PluginSetting
 	if err != nil {
 		return PluginSettingsVM{}, err
 	}
+	// 先把先前的完整 settings（含 sidecar）读出来，供 mergeSecrets 使用。
 	pc := a.cfg.Plugins[id]
-	// 把上一版的 secret 值合并回来：patch 里遇到 "***" 视为"保持不变"。
+	previousFull, err := a.currentFullSettings(id, pc.Settings)
+	if err != nil {
+		return PluginSettingsVM{}, err
+	}
 	merged := patch
 	if schema != nil {
-		merged, err = mergeSecrets(schema, pc.Settings, patch)
+		merged, err = mergeSecrets(schema, previousFull, patch)
 		if err != nil {
 			return PluginSettingsVM{}, err
 		}
@@ -88,7 +97,12 @@ func (a *App) SetPluginSettings(id string, patch json.RawMessage) (PluginSetting
 			return PluginSettingsVM{}, fmt.Errorf("validation failed: %s", errs[0].Error())
 		}
 	}
-	pc.Settings = merged
+	// 拆分 secret / 非 secret；secret 落 sidecar，非 secret 落 config.json。
+	clean, secretPart, err := settings.Split(schema, merged)
+	if err != nil {
+		return PluginSettingsVM{}, err
+	}
+	pc.Settings = clean
 	if a.cfg.Plugins == nil {
 		a.cfg.Plugins = map[string]config.PluginConfig{}
 	}
@@ -96,7 +110,28 @@ func (a *App) SetPluginSettings(id string, patch json.RawMessage) (PluginSetting
 	if err := saveDesktopConfig(a.cfg); err != nil {
 		return PluginSettingsVM{}, fmt.Errorf("save config: %w", err)
 	}
+	store := settings.NewStoreFromDataDir(a.cfg.App.DataDir)
+	if err := store.Save(id, secretPart); err != nil {
+		return PluginSettingsVM{}, fmt.Errorf("save secrets: %w", err)
+	}
 	return a.buildPluginSettingsVM(id, true)
+}
+
+// currentFullSettings 返回 pc.Settings 与 sidecar secrets 合并后的完整 settings。
+// 供 SetPluginSettings 前先补齐再走 mergeSecrets 逻辑。
+func (a *App) currentFullSettings(id string, base json.RawMessage) (json.RawMessage, error) {
+	if a.cfg.App.DataDir == "" {
+		return base, nil
+	}
+	store := settings.NewStoreFromDataDir(a.cfg.App.DataDir)
+	sec, ok, err := store.Load(id)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return base, nil
+	}
+	return settings.Merge(base, sec)
 }
 
 // saveDesktopConfig 把当前 cfg 写回默认 config 路径 `<DataDir>/config.json`。
@@ -110,6 +145,28 @@ func saveDesktopConfig(cfg config.Config) error {
 	return config.Save(path, cfg)
 }
 
+// buildInitRequest 构造 sdk.InitRequest，合并 secret sidecar（若存在）。
+// 与 CLI 的 pluginInitRequest 语义等价，见 apps/cli/plugins.go。
+func (a *App) buildInitRequest(id string) sdk.InitRequest {
+	pc := a.cfg.Plugins[id]
+	merged := pc.Settings
+	if a.cfg.App.DataDir != "" {
+		store := settings.NewStoreFromDataDir(a.cfg.App.DataDir)
+		if sec, ok, err := store.Load(id); err == nil && ok {
+			if out, mErr := settings.Merge(merged, sec); mErr == nil {
+				merged = out
+			} else {
+				a.log.WithComponent("plugin.settings").
+					Warn("merge secret sidecar failed", "id", id, "err", mErr.Error())
+			}
+		}
+	}
+	return sdk.InitRequest{
+		Settings: merged,
+		DataDir:  filepath.Join(a.cfg.App.DataDir, "plugin-data"),
+	}
+}
+
 // -----------------------------------------------------------------------------
 // helpers
 // -----------------------------------------------------------------------------
@@ -120,7 +177,11 @@ func (a *App) buildPluginSettingsVM(id string, redact bool) (PluginSettingsVM, e
 	if err != nil {
 		return PluginSettingsVM{}, err
 	}
-	raw := pc.Settings
+	// 合并 sidecar：view 层始终看到"完整 settings"，只是 secret 会被 Redact 成 ***
+	raw, err := a.currentFullSettings(id, pc.Settings)
+	if err != nil {
+		return PluginSettingsVM{}, err
+	}
 	if schema != nil {
 		merged, err := schema.ApplyDefaults(raw)
 		if err != nil {

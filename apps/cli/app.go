@@ -169,7 +169,7 @@ func (a *App) ensurePluginEnabled(ctx context.Context, id string) error {
 		return fmt.Errorf("register plugin %q: %w", id, err)
 	}
 	pcfg := a.Cfg.Plugins[id]
-	if err := a.PlugMgr.Enable(ctx, id, pluginInitRequest(pcfg, a.Cfg)); err != nil {
+	if err := a.PlugMgr.Enable(ctx, id, pluginInitRequest(id, pcfg, a.Cfg)); err != nil {
 		return fmt.Errorf("enable plugin %q: %w", id, err)
 	}
 	return nil

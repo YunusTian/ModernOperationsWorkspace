@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	coreplugin "github.com/mow/mow/core/plugin"
+	"github.com/mow/mow/core/plugin/settings"
 	"github.com/mow/mow/sdk"
 	"github.com/mow/mow/sdk/manifest"
 	sdkversion "github.com/mow/mow/sdk/version"
@@ -142,12 +143,22 @@ func (a *App) SetPluginEnabled(id string, enabled bool) (PluginVM, error) {
 }
 
 // UninstallPlugin 删除插件目录；purge=true 时连 .state 也一并删除。
+// v0.5.2 P1：purge=true 时同时清理 secret sidecar。
 func (a *App) UninstallPlugin(id string, purge bool) error {
 	lifecycle, err := coreplugin.NewLifecycle(a.cfg.App.PluginsDir)
 	if err != nil {
 		return err
 	}
-	return lifecycle.Uninstall(id, purge)
+	if err := lifecycle.Uninstall(id, purge); err != nil {
+		return err
+	}
+	if purge && a.cfg.App.DataDir != "" {
+		if err := settings.NewStoreFromDataDir(a.cfg.App.DataDir).Delete(id); err != nil {
+			a.log.WithComponent("plugin.settings").
+				Warn("purge secret sidecar failed", "id", id, "err", err.Error())
+		}
+	}
+	return nil
 }
 
 // DoctorPlugin 对单个插件做一次深度诊断，返回结构化结果。

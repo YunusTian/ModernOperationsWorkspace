@@ -7,6 +7,7 @@ import (
 	"io"
 
 	coreplugin "github.com/mow/mow/core/plugin"
+	"github.com/mow/mow/core/plugin/settings"
 	"github.com/spf13/cobra"
 
 	"github.com/mow/mow/sdk"
@@ -207,7 +208,14 @@ that reinstalling the plugin restores its previous enable state. Pass
 			if err := lifecycle.Uninstall(args[0], purge); err != nil {
 				return err
 			}
+			// --purge 时同时清理 secret sidecar（保留 secrets 会让下一次安装
+			// 意外拿到旧密钥；这与 state 语义一致）。
 			if purge {
+				if app, aerr := holder.Load(); aerr == nil && app.Cfg.App.DataDir != "" {
+					if err := settings.NewStoreFromDataDir(app.Cfg.App.DataDir).Delete(args[0]); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "warning: purge secret sidecar failed: %v\n", err)
+					}
+				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s (state purged).\n", args[0])
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s (state preserved).\n", args[0])

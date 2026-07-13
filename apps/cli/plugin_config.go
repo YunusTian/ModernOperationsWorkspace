@@ -111,7 +111,11 @@ func runConfigList(cmd *cobra.Command, holder *appHolder, id string, jsonOut boo
 	if err != nil {
 		return err
 	}
-	settingsRaw := pc.Settings
+	// 合并 sidecar 后再展示（脱敏），确保 UI 看到"完整 settings"。
+	settingsRaw, err := mergeSidecar(holder, id, pc.Settings)
+	if err != nil {
+		return err
+	}
 	if schema != nil {
 		merged, err := schema.ApplyDefaults(settingsRaw)
 		if err != nil {
@@ -166,7 +170,10 @@ func runConfigGet(cmd *cobra.Command, holder *appHolder, id, path string) error 
 	if err != nil {
 		return err
 	}
-	src := pc.Settings
+	src, err := mergeSidecar(holder, id, pc.Settings)
+	if err != nil {
+		return err
+	}
 	if schema != nil {
 		src, _ = schema.ApplyDefaults(src)
 	}
@@ -195,12 +202,17 @@ func runConfigSet(cmd *cobra.Command, holder *appHolder, id, path, rawValue stri
 		return err
 	}
 	pc := app.Cfg.Plugins[id]
+	// 合并 sidecar → 得到当前完整 settings；再对 path 做增删。
+	full, err := mergeSidecar(holder, id, pc.Settings)
+	if err != nil {
+		return err
+	}
 	var next json.RawMessage
 	if rawValue == "" {
-		next, err = settings.SetPath(pc.Settings, path, nil)
+		next, err = settings.SetPath(full, path, nil)
 	} else {
 		val := parseCLIValue(rawValue, schema, path)
-		next, err = settings.SetPath(pc.Settings, path, val)
+		next, err = settings.SetPath(full, path, val)
 	}
 	if err != nil {
 		return err
@@ -214,13 +226,22 @@ func runConfigSet(cmd *cobra.Command, holder *appHolder, id, path, rawValue stri
 			return fmt.Errorf("validation failed:\n%s", formatErrors(errs))
 		}
 	}
-	pc.Settings = next
+	// 拆分 secret / 非 secret：secret → sidecar，非 secret → config.json。
+	clean, secretPart, err := settings.Split(schema, next)
+	if err != nil {
+		return err
+	}
+	pc.Settings = clean
 	if app.Cfg.Plugins == nil {
 		app.Cfg.Plugins = map[string]config.PluginConfig{}
 	}
 	app.Cfg.Plugins[id] = pc
 	if err := saveConfigFile(holder, app.Cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
+	}
+	store := settings.NewStoreFromDataDir(app.Cfg.App.DataDir)
+	if err := store.Save(id, secretPart); err != nil {
+		return fmt.Errorf("save secrets: %w", err)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Updated %s.%s\n", id, path)
 	return nil
@@ -340,6 +361,27 @@ func redactSettings(schema *settings.Schema, raw json.RawMessage) (json.RawMessa
 		return raw, nil
 	}
 	return schema.Redact(raw)
+}
+
+// mergeSidecar 读取 <DataDir>/plugin-secrets/<id>.json 并合并到 base。
+// 无 sidecar 时直接返回 base；错误直接返回，避免静默丢失 secret。
+func mergeSidecar(holder *appHolder, id string, base json.RawMessage) (json.RawMessage, error) {
+	app, err := holder.Load()
+	if err != nil {
+		return nil, err
+	}
+	if app.Cfg.App.DataDir == "" {
+		return base, nil
+	}
+	store := settings.NewStoreFromDataDir(app.Cfg.App.DataDir)
+	sec, ok, err := store.Load(id)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return base, nil
+	}
+	return settings.Merge(base, sec)
 }
 
 func prettify(raw json.RawMessage) []byte {
