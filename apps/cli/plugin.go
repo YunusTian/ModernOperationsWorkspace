@@ -86,51 +86,106 @@ func newPluginListCmd(holder *appHolder) *cobra.Command {
 }
 
 func newPluginInstallCmd(holder *appHolder) *cobra.Command {
-	return &cobra.Command{
-		Use:   "install <package>",
-		Short: "Install a validated local plugin package",
-		Args:  cobra.ExactArgs(1),
+	var fromPath bool
+	var fromCatalog bool
+	cmd := &cobra.Command{
+		Use:   "install <package|id[@version]>",
+		Short: "Install a plugin from a local package or the configured catalog",
+		Long: `Install accepts either:
+  * a filesystem path to a plugin package directory (or plugin.json), or
+  * a plugin identifier like "ssh" / "ssh@0.5.1" that is resolved against
+    the configured catalog(s).
+
+By default the argument shape decides the mode: values containing '/' '\'
+or beginning with '.' are treated as paths; the rest are treated as
+catalog references. Use --path or --catalog to force one of the two modes.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			lifecycle, err := pluginLifecycle(holder)
-			if err != nil {
-				return err
-			}
-			item, err := lifecycle.Install(args[0])
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Installed %s@%s (disabled).\n", item.ID, item.Version)
-			return nil
+			return runPluginInstallOrUpdate(cmd, holder, args[0], fromPath, fromCatalog, false)
 		},
 	}
+	cmd.Flags().BoolVar(&fromPath, "path", false, "force treating the argument as a local package path")
+	cmd.Flags().BoolVar(&fromCatalog, "catalog", false, "force treating the argument as a catalog reference id[@version]")
+	return cmd
 }
 
 func newPluginUpdateCmd(holder *appHolder) *cobra.Command {
-	return &cobra.Command{
-		Use:   "update <package>",
-		Short: "Update an installed plugin from a validated local package",
-		Long: `Update swaps an installed plugin with the version found at <package>.
-The new package is validated, staged in a temporary directory, and the
-existing installation is atomically replaced. On failure the previous
-version is restored from a backup.`,
+	var fromPath bool
+	var fromCatalog bool
+	cmd := &cobra.Command{
+		Use:   "update <package|id[@version]>",
+		Short: "Update an installed plugin from a local package or the catalog",
+		Long: `Update swaps an installed plugin with the version found at the
+argument. Either a local package path or a catalog reference is
+accepted (see 'mow plugin install --help' for details). The existing
+installation is atomically replaced and rolled back on failure.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			lifecycle, err := pluginLifecycle(holder)
-			if err != nil {
-				return err
-			}
-			item, err := lifecycle.Update(args[0])
-			if err != nil {
-				return err
-			}
-			state := "disabled"
-			if item.Enabled {
-				state = "enabled"
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Updated %s@%s (%s).\n", item.ID, item.Version, state)
-			return nil
+			return runPluginInstallOrUpdate(cmd, holder, args[0], fromPath, fromCatalog, true)
 		},
 	}
+	cmd.Flags().BoolVar(&fromPath, "path", false, "force treating the argument as a local package path")
+	cmd.Flags().BoolVar(&fromCatalog, "catalog", false, "force treating the argument as a catalog reference id[@version]")
+	return cmd
+}
+
+// runPluginInstallOrUpdate 是 install / update 的共用入口；update=true 时走
+// Lifecycle.Update（原子替换 + 回退），否则走 Lifecycle.Install（要求未安装）。
+func runPluginInstallOrUpdate(cmd *cobra.Command, holder *appHolder, arg string, forcePath, forceCatalog, update bool) error {
+	if forcePath && forceCatalog {
+		return fmt.Errorf("--path and --catalog are mutually exclusive")
+	}
+	viaCatalog := forceCatalog || (!forcePath && coreplugin.LooksLikeCatalogRef(arg))
+
+	lifecycle, err := pluginLifecycle(holder)
+	if err != nil {
+		return err
+	}
+
+	past := "Installed"
+	if update {
+		past = "Updated"
+	}
+
+	if !viaCatalog {
+		var item coreplugin.Installation
+		var err error
+		if update {
+			item, err = lifecycle.Update(arg)
+		} else {
+			item, err = lifecycle.Install(arg)
+		}
+		if err != nil {
+			return err
+		}
+		state := "disabled"
+		if item.Enabled {
+			state = "enabled"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s %s@%s (%s).\n", past, item.ID, item.Version, state)
+		return nil
+	}
+
+	// Catalog 路径。
+	inst, err := buildInstaller(holder, lifecycle)
+	if err != nil {
+		return err
+	}
+	var item coreplugin.Installation
+	if update {
+		item, err = inst.Update(cmd.Context(), arg)
+	} else {
+		item, err = inst.Install(cmd.Context(), arg)
+	}
+	if err != nil {
+		return err
+	}
+	state := "disabled"
+	if item.Enabled {
+		state = "enabled"
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "%s %s@%s (%s) from catalog.\n", past, item.ID, item.Version, state)
+	return nil
 }
 
 func newPluginUninstallCmd(holder *appHolder) *cobra.Command {

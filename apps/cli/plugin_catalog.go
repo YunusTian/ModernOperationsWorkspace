@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/mow/mow/core/config"
+	coreplugin "github.com/mow/mow/core/plugin"
 	"github.com/mow/mow/core/plugin/catalog"
 	sdkversion "github.com/mow/mow/sdk/version"
 )
@@ -161,6 +162,31 @@ func buildCatalogClient(cfg config.Config) (*catalog.Client, error) {
 	return catalog.NewClient(catalog.Options{
 		Sources:  sources,
 		CacheDir: cacheDir,
+	})
+}
+
+// buildInstaller 为 install/update 的 catalog 路径装配 Installer。
+// 只在真正需要走 catalog 时调用（避免无 catalog 配置时 install <path> 也报错）。
+func buildInstaller(holder *appHolder, lifecycle *coreplugin.Lifecycle) (*coreplugin.Installer, error) {
+	app, err := holder.Load()
+	if err != nil {
+		return nil, err
+	}
+	client, err := buildCatalogClient(app.Cfg)
+	if err != nil {
+		return nil, err
+	}
+	if len(client.Sources()) == 0 {
+		return nil, fmt.Errorf("no catalog sources configured; add one under app.catalog.sources")
+	}
+	return coreplugin.NewInstaller(coreplugin.InstallerOptions{
+		Lifecycle: lifecycle,
+		Catalog:   client,
+		Filter: catalog.Filter{
+			OS:          runtime.GOOS,
+			Arch:        runtime.GOARCH,
+			CoreVersion: sdkversion.Version,
+		},
 	})
 }
 
