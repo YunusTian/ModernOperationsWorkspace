@@ -284,3 +284,141 @@ MatchMetadata(runtime meta)              ← 关卡 2：拿到子进程 Metadata
 - AI：[plugins/ai/plugin.json](../plugins/ai/plugin.json)（3 commands + settingsSchema）
 
 每个官方插件的 `manifest_test.go` 都会强校验 Manifest 与运行时 `Metadata()` 一致、Manifest.commands 与运行时 CommandHandler 集合互相对齐；避免运行时/Manifest 漂移。
+
+## 8. Catalog & Distribution（v0.5.1）
+
+v0.5.1 把 v0.5.0 冻结的 Manifest 与包格式，装配成完整的"从 Catalog 拉取 → 校验 → 原子安装/升级 → 回退 → 卸载"链路。设计仍以**静态 JSON + GitHub Release 产物**为核心，不引入服务端。
+
+### 8.1 数据流
+
+```
+                +----------------------+
+                |  catalog.json (HTTP) |
+                +----------+-----------+
+                           |  Fetch (http/https/file, 多源合并)
+                           v
+                 +------------------+
+                 |  catalog.Client  |----> disk cache (sha256(name+url))
+                 +---------+--------+
+                           | Search / LatestFor（OS/Arch/Compat 过滤）
+                           v
+                 +------------------+     Download url + sha256
+                 |    Installer     |----------------------------+
+                 +---------+--------+                            |
+                           |                                     v
+                           |                    +------------------------------+
+                           |                    | plugin.Download              |
+                           |                    |  - fetchTo (limit MaxBytes)  |
+                           |                    |  - verifyChecksum (sha256:)  |
+                           |                    |  - extract (tar.gz/zip)      |
+                           |                    |  - safeJoin (拒穿越/symlink) |
+                           |                    +---------------+--------------+
+                           v                                    |
+                 +------------------+                           |
+                 |  Lifecycle       |<--------------------------+
+                 |  Install/Update  |
+                 |  + backup + rollback
+                 +---------+--------+
+                           |
+                           v
+                 <PluginsDir>/<id>/plugin.json + bin/…
+                 <PluginsDir>/.state/<id>.json
+```
+
+### 8.2 Catalog JSON Schema（v1）
+
+```jsonc
+{
+  "catalogVersion": 1,
+  "source": "official",
+  "entries": [
+    {
+      "id": "ssh",
+      "name": "SSH Plugin",
+      "description": "…",
+      "author": "MOW",
+      "license": "Apache-2.0",
+      "homepage": "…",
+      "tags": ["remote", "shell"],
+      "versions": [
+        {
+          "version": "0.5.1",
+          "compatibility": { "core": ">=0.5.0,<0.6.0" },
+          "publishedAt": "2026-07-13T10:00:00Z",
+          "platforms": [
+            { "os": "linux",   "arch": "amd64", "url": "https://…/mow-ssh-plugin-linux-amd64.tar.gz",   "checksum": "sha256:…" },
+            { "os": "darwin",  "arch": "arm64", "url": "https://…/mow-ssh-plugin-darwin-arm64.tar.gz",  "checksum": "sha256:…" },
+            { "os": "windows", "arch": "amd64", "url": "https://…/mow-ssh-plugin-windows-amd64.tar.gz", "checksum": "sha256:…" }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+约束（[core/plugin/catalog.Parse](../core/plugin/catalog/catalog.go)）：
+
+- `catalogVersion` 恒为 `1`（未来递增时会附兼容层）
+- 拒绝未知顶层字段与 BOM
+- 单个 entry 的 `versions[]` 中版本号不得重复；`Parse` 后按 semver 降序排列
+- `Artifact.checksum` 必须 `sha256:<64 hex>`
+- `Compatibility.core / sdk / protocol` 语义与 [Manifest §7.1](#71-约束语法) 相同
+
+### 8.3 Catalog Client 语义
+
+- 多源顺序即拉取顺序；单源失败不阻塞其他源（`FetchAll` 返回 `[]Result`，`Err != nil` 的源在 CLI 里输出 warning）
+- Scheme 支持 `http` / `https` / `file`；其他 scheme 直接拒绝
+- 拉取上限 `MaxBytes`（默认 256 MiB），超限或 `ContentLength` mismatch 立即失败
+- 缓存：`<cache_dir>/<sha256(name+url)>.json`，先写临时文件再原子 `rename`
+- 离线回退：`force=false` 时网络失败或 JSON 坏 → 读缓存；`force=true` 时不回退，但仍保留旧缓存供下一次使用
+- `Filter{OS, Arch, CoreVersion, Query, IncludeYanked}` 完成静态过滤；`LatestFor(id, filter)` 返回过滤后 semver 最高版本
+
+### 8.4 Downloader / Installer 语义
+
+- `plugin.Download(ctx, url, "sha256:…", opts)` → 返回一个已解压的**包目录**，含 `plugin.json` + `bin/…`
+- 归档识别：`.tar.gz / .tgz / .tar / .zip / .json`；无后缀时按魔数嗅探（`PK\x03\x04` → zip，其他默认 tar.gz）
+- `locatePluginRoot` 允许归档顶层多包一层目录（`sample-plugin-0.5.1/`）
+- `Installer.Install(ctx, ref)` / `Update(ctx, ref)`：
+  - `ref` 支持 `id` 或 `id@version`
+  - 无版本 → `LatestFor`；有版本 → 精确匹配 + 平台过滤
+  - 内部走 `Lifecycle.Install / Update`，前者要求"未安装"，后者要求"已安装"
+- `LooksLikeCatalogRef(arg)`：CLI 层根据参数形态在"本地路径 vs catalog"之间自动路由；`--path` / `--catalog` 可显式指定
+
+### 8.5 CLI 命令
+
+| 命令 | 语义 |
+| --- | --- |
+| `mow plugin catalog list` | 列出所有配置的源与缓存位置 |
+| `mow plugin catalog refresh [--json]` | 强制刷新缓存，输出成功/失败明细 |
+| `mow plugin search [q] [--all] [--refresh] [--os] [--arch] [--json]` | 多源过滤后的搜索；`--all` 关闭平台过滤 |
+| `mow plugin install <path\|id[@ver]>` | 本地包路径或 catalog 引用；`--path` / `--catalog` 强制 |
+| `mow plugin update  <path\|id[@ver]>` | 同上，走原子替换 + 回退 |
+| `mow plugin uninstall <id> [--purge]` | 默认保留 `.state`；`--purge` 才彻底清理 |
+
+### 8.6 桌面接入
+
+`apps/desktop/plugin_catalog.go` 提供 Wails 绑定 `ListCatalogSources / RefreshCatalog / SearchCatalog / InstallPluginFromCatalog / UpdatePluginFromCatalog`；`PluginsPage` 通过 Installed / Marketplace 双 tab 复用同一个 `catalog.Client`。UI 显式区分健康 badge：`ok`（绿）/ `incompatible`（黄）/ `broken`（红），后两者附带稳定错误码与 `Details`。
+
+### 8.7 Release Workflow（v0.5.1 P2）
+
+1. `build` job 产出所有平台的 CLI + 插件 tar.gz + `.sha256`
+2. `catalog` job（新增）：下载全部 artifacts → 运行 `scripts/build-catalog.go` → 输出 `catalog.json` → 上传成独立 artifact
+3. `smoke` job：`needs: [build, catalog]`；执行 Phase 1（`plugin validate + ai providers`）与 Phase 2（`plugin catalog refresh → search → install ssh → uninstall --purge`，URL 通过派生本地 `file://` catalog）
+4. `release` job：把 tar.gz + `.sha256` + `SHA256SUMS` + `catalog.json` 一并挂到 GitHub Release
+
+`config.Config.App.Catalog.Sources` 的默认值为 `{Name: "official", URL: "https://github.com/mow/mow/releases/latest/download/catalog.json", Trusted: true}`；新用户开箱即可 `mow plugin search / install`，无需手动配置。
+
+### 8.8 稳定错误码扩展
+
+在 [§7.3](#73-稳定错误码) 的基础上，v0.5.1 补充以下 Code（详见 [core/plugin/download.go](../core/plugin/download.go) / [installer.go](../core/plugin/installer.go)）：
+
+| Code | 触发点 | 详情字段 |
+| --- | --- | --- |
+| `PLUGIN_CATALOG_UNAVAILABLE` | 所有 catalog 源均失败 | `sources` |
+| `PLUGIN_CHECKSUM_MISMATCH` | Downloader.verifyChecksum | `expected` / `actual` / `url` |
+| `PLUGIN_ARTIFACT_TOO_LARGE` | Downloader.fetchTo 越限 | `max` / `size` |
+| `PLUGIN_UPDATE_ROLLBACK` | Lifecycle.rollbackUpdate | `id` / `from_version` / `to_version` / `reason` |
+| `PLUGIN_ARCHIVE_UNSAFE` | safeJoin 判定路径穿越 / symlink | `entry` |
+
+这些 Code 与 v0.5.0 契约同级：CHANGELOG 会追踪，CLI / Desktop 按 Code 分支渲染。

@@ -7,7 +7,14 @@
 
 ## [Unreleased]
 
-### v0.5.1 P1 — 本地插件生命周期
+### v0.5.1 P0–P3 — 生命周期完整链路 + 本地 Catalog + Desktop Marketplace + Release Catalog
+
+- **P0 · Catalog → Install/Update 打通**：新增 `core/plugin.Download`（支持 http/https/file，sha256 强校验，tar.gz/zip/裸 json，路径穿越 + symlink 拒绝，`MaxBytes` 默认 256 MiB）与 `Installer`（把 `catalog.Client + Download + Lifecycle` 串成 `Install/Update`）；CLI `mow plugin install|update` 现在同时接受本地包路径与 `id[@version]` catalog 引用（`--path` / `--catalog` 可强制），E2E `plugin_install_e2e_test.go` 覆盖静态 httptest catalog + tar.gz artifacts 走 `install → list → update → uninstall --purge` 全链路，checksum 篡改场景不留半成品。
+- **P1 · Desktop 接入 Catalog**：`apps/desktop/plugin_catalog.go` 新增 Wails 方法 `ListCatalogSources / RefreshCatalog / SearchCatalog / InstallPluginFromCatalog / UpdatePluginFromCatalog`；`PluginsPage` 拆成 Installed / Marketplace 双 tab，Marketplace 提供搜索输入 + 多源刷新 + 表格（Latest / Installed / Version 下拉 / Install 或 Update 按钮）+ ReleaseDetails 面板；`plugin_catalog_test.go` 端到端覆盖 list/refresh/search/install + 无源报错。
+- **P2 · 官方 Catalog 与 Release**：新增 `scripts/build-catalog.go`（读 `plugins/<id>/plugin.json` + release artifacts 生成 `catalog.json`，缺任何平台产物立即失败）；`.github/workflows/release.yml` 新增 `catalog` job（`needs: build` → 生成 → 上传独立 artifact），`smoke` 现在 `needs: [build, catalog]` 下载 catalog；Release Smoke Phase 2 新增 `plugin catalog refresh → search → install ssh → uninstall --purge`（bash + pwsh 双端）；`config.Default()` 预置 `official` catalog 源指向 `releases/latest/download/catalog.json`。
+- **P3 · 文档收尾**：新增 [v0.5.1 验收清单](./docs/v0.5.1-acceptance-checklist.md)；[docs/plugin-system.md §8 Catalog & Distribution](./docs/plugin-system.md#8-catalog--distributionv051) 覆盖数据流 / Schema / Client 语义 / Installer / CLI / Desktop / Release 工作流 / 稳定错误码扩展；[roadmap.md](./docs/roadmap.md) 与 [development-plan-v0.5-v1.0.md §4.3.1](./docs/development-plan-v0.5-v1.0.md#431-v051-发布门槛) 门槛勾选。
+
+### v0.5.1 P1 — 本地插件生命周期（早期批次）
 
 - 新增 `core/plugin.Lifecycle`，提供本地包安装、枚举、启用、禁用和健康诊断。
 - 安装在 `PluginsDir` 同盘临时目录复制并重新执行完整 Manifest/checksum 校验，成功后通过目录 rename 原子激活；拒绝包内符号链接和覆盖既有安装。

@@ -150,7 +150,7 @@ mow plugin uninstall
 mow plugin doctor
 ```
 
-P1 当前进度：已实现 `list / install / enable / disable / doctor` 和本地包原子安装；其余三条命令及 Catalog、升级回退、卸载语义在后续批次完成。
+P1 当前进度：全部命令已交付。CLI 八条（`list / search / install / update / enable / disable / uninstall / doctor`）加上 `catalog list|refresh` 均可用；`install / update` 同时接受本地包路径与 `id[@version]` catalog 引用。详情见 [v0.5.1 验收清单](./v0.5.1-acceptance-checklist.md)。
 
 Desktop 插件管理页（v0.5.1 保持最小可用）：
 
@@ -176,12 +176,12 @@ Desktop 插件管理页（v0.5.1 保持最小可用）：
 
 #### 4.3.1 v0.5.1 发布门槛
 
-- [ ] CLI 八条子命令齐全，错误码稳定
-- [ ] 至少一个插件能从本地 Catalog 完成 install → enable → upgrade → 回退 → uninstall 全链路
-- [ ] 升级失败自动回退旧二进制 + 旧 Manifest，数据不丢
-- [ ] 卸载留存插件数据目录，`--purge` 才真删
-- [ ] Windows / Linux / macOS 三平台 install 路径一致
-- [ ] SHA-256 校验失败拒绝安装并保留错误码
+- [x] CLI 八条子命令齐全，错误码稳定
+- [x] 至少一个插件能从本地 Catalog 完成 install → enable → upgrade → 回退 → uninstall 全链路（[plugin_install_e2e_test.go](../apps/cli/plugin_install_e2e_test.go) 覆盖 install → update → uninstall；enable/disable 沿用 v0.5.0 Lifecycle）
+- [x] 升级失败自动回退旧二进制 + 旧 Manifest，数据不丢
+- [x] 卸载留存插件数据目录，`--purge` 才真删
+- [x] Windows / Linux / macOS 三平台 install 路径一致（Release Workflow smoke 已定义；三平台真实通过一次仍需下一个 tag 触发）
+- [x] SHA-256 校验失败拒绝安装并保留错误码
 
 ### 4.4 v0.5.2：Schema 驱动的配置 UI + PVE 参考实现
 
