@@ -10,6 +10,7 @@ use (
 	./core
 	./plugins/ai
 	./plugins/docker
+	./plugins/pve
 	./plugins/ssh
 	./sdk
 	./tests/e2e

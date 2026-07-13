@@ -20,7 +20,7 @@ try {
     # ------------------------------------------------------------------
     # Phase 1: plugin validate 冒烟（保持原有语义，覆盖 legacy path）
     # ------------------------------------------------------------------
-    foreach ($id in @("ssh", "docker", "ai")) {
+    foreach ($id in @("ssh", "docker", "ai", "pve")) {
         $archive = Join-Path $ArtifactDir "mow-$id-plugin-$Target-$Arch.tar.gz"
         if (!(Test-Path -LiteralPath $archive)) { throw "$id release archive is missing from $ArtifactDir" }
         $package = Join-Path $plugins $id
@@ -91,7 +91,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "plugin catalog refresh failed" }
     $search = & $mow --config $catConfigPath plugin search
     if ($LASTEXITCODE -ne 0) { throw "plugin search failed" }
-    if (($search -join "`n") -notmatch "ssh|docker|ai") { throw "no known plugin in search output" }
+    if (($search -join "`n") -notmatch "ssh|docker|ai|pve") { throw "no known plugin in search output" }
     & $mow --config $catConfigPath plugin install ssh
     if ($LASTEXITCODE -ne 0) { throw "plugin install ssh (catalog) failed" }
     $list = & $mow --config $catConfigPath plugin list

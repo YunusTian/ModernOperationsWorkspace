@@ -11,6 +11,7 @@ modules=(
   "plugins/ssh"
   "plugins/docker"
   "plugins/ai"
+  "plugins/pve"
   "sdk"
   "tests/e2e"
 )

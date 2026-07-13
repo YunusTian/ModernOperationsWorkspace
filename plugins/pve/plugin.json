@@ -1,0 +1,64 @@
+{
+  "manifestVersion": 1,
+  "id": "pve",
+  "name": "Proxmox VE",
+  "version": "0.5.0",
+  "author": "mow",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/YunusTian/ModernOperationsWorkspace",
+  "description": "Proxmox VE read-only reference plugin: cluster / node / vm / lxc listing + start/stop/reboot",
+  "compatibility": {
+    "core": ">=0.5.0,<0.6.0",
+    "sdk": ">=0.4.0,<0.6.0"
+  },
+  "platforms": [
+    {"os": "linux",   "arch": "amd64", "entrypoint": "bin/mow-pve-plugin",     "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "linux",   "arch": "arm64", "entrypoint": "bin/mow-pve-plugin",     "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "darwin",  "arch": "amd64", "entrypoint": "bin/mow-pve-plugin",     "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "darwin",  "arch": "arm64", "entrypoint": "bin/mow-pve-plugin",     "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"os": "windows", "arch": "amd64", "entrypoint": "bin/mow-pve-plugin.exe", "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+  ],
+  "connectionTypes": ["pve"],
+  "permissions": ["read", "execute"],
+  "commands": [
+    {"id": "cluster.status", "permission": "read",    "description": "cluster status summary"},
+    {"id": "node.list",      "permission": "read",    "description": "list cluster nodes"},
+    {"id": "vm.list",        "permission": "read",    "description": "list QEMU VMs (optionally scoped to a node)"},
+    {"id": "vm.status",      "permission": "read",    "description": "single QEMU VM status detail"},
+    {"id": "lxc.list",       "permission": "read",    "description": "list LXC containers (optionally scoped to a node)"},
+    {"id": "vm.start",       "permission": "execute", "description": "start a QEMU VM (async task)"},
+    {"id": "vm.stop",        "permission": "execute", "description": "shutdown a QEMU VM (graceful; falls back to stop when 'force')"},
+    {"id": "vm.reboot",      "permission": "execute", "description": "reboot a QEMU VM"},
+    {"id": "lxc.start",      "permission": "execute", "description": "start an LXC container"},
+    {"id": "lxc.stop",       "permission": "execute", "description": "shutdown an LXC container"},
+    {"id": "lxc.reboot",     "permission": "execute", "description": "reboot an LXC container"}
+  ],
+  "settingsSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "endpoints": {
+        "type": "array",
+        "description": "PVE API endpoints; the first one is the default target when a request omits 'endpoint'.",
+        "items": {
+          "type": "object",
+          "required": ["name", "host"],
+          "additionalProperties": false,
+          "properties": {
+            "name":            {"type": "string",  "description": "Logical name used as sdk.Connection identifier."},
+            "host":            {"type": "string",  "format": "url",     "description": "Base URL, e.g. https://pve.example.com:8006"},
+            "token_id":        {"type": "string",  "description": "PVE API token id, e.g. 'root@pam!mow-read'"},
+            "token_secret":    {"type": "string",  "secret": true,     "description": "PVE API token secret (stored in the sidecar keyring, never in config.json)"},
+            "token_secret_env":{"type": "string",  "description": "Environment variable holding the token secret (used when token_secret is empty)."},
+            "insecure_tls":    {"type": "boolean", "default": false,    "description": "Skip TLS certificate verification. Only use for self-signed labs."},
+            "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300, "default": 30}
+          }
+        }
+      }
+    }
+  },
+  "source": {
+    "url": "https://github.com/YunusTian/ModernOperationsWorkspace"
+  }
+}

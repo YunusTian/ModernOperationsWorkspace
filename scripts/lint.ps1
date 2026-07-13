@@ -12,7 +12,7 @@ if (-not (Get-Command golangci-lint -ErrorAction SilentlyContinue)) {
 }
 
 $repo = Split-Path -Parent $PSScriptRoot
-$modules = @('core','apps\cli','apps\desktop','plugins\ssh','plugins\docker','sdk','tests\e2e')
+$modules = @('core','apps\cli','apps\desktop','plugins\ssh','plugins\docker','plugins\ai','plugins\pve','sdk','tests\e2e')
 foreach ($m in $modules) {
     $path = Join-Path $repo $m
     Write-Host "[lint] --- $m ---" -ForegroundColor Cyan

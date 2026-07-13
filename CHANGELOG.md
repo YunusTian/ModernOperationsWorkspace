@@ -7,6 +7,17 @@
 
 ## [Unreleased]
 
+### v0.5.2 P1 — Schema 驱动的配置 UI + Secret sidecar + PVE 参考插件
+
+- **Manifest `settingsSchema` 编译器**：新增 [core/plugin/settings](./core/plugin/settings/schema.go)，覆盖 JSON Schema 子集 + 自定义 `secret` 关键字（`Compile / Validate / ApplyDefaults / Redact / Fields / SetPath / GetPath / SecretPaths`）；不引入重量级依赖。
+- **Secret 隔离存储**：[secret_store.go](./core/plugin/settings/secret_store.go) 新增 `SecretStore` sidecar（`<DataDir>/plugin-secrets/<id>.json`，dir 0o700 / file 0o600，原子 rename）+ `Split(schema, raw)` / `Merge(base, secrets)`；CLI/Desktop 写回时把 secret 分流到 sidecar，`config.json` 保持无明文；`pluginInitRequest`（CLI）与 `buildInitRequest`（Desktop）在 Init 前合并 sidecar，插件端拿到完整 `req.Settings`；`uninstall --purge` 同步删除 sidecar。
+- **CLI `mow plugin config`**：新增 `list / get / set / unset / schema [--json]` 子命令族，全部按 schema 校验、脱敏后展示；[apps/cli/plugin_config.go](./apps/cli/plugin_config.go) + 单测覆盖 secret 隔离 & list 不泄漏。
+- **Desktop 配置 UI**：`PluginsPage` Installed tab 每行新增 Settings 按钮 → `SettingsDrawer` 抽屉；根据 schema 渲染 enum 下拉 / boolean 复选框 / secret password 输入 / integer number；新增 `GetPluginSchema / GetPluginSettings / SetPluginSettings` 三个 Wails 方法；[bindings.ts](./apps/desktop/frontend/src/bindings.ts) 类型齐全。
+- **AI 插件 schema 加固**：[plugins/ai/plugin.json](./plugins/ai/plugin.json) 补齐 `providers[].options.*` 的完整 schema，包括 `api_key { secret: true }`、`timeout_seconds` / `retry_*` 默认值与范围。
+- **PVE 只读参考插件**：新增 [plugins/pve](./plugins/pve/) 独立 module（`replace ../../sdk`），涵盖 `cluster.status / node.list / vm.list / vm.status / lxc.list / vm.{start,stop,reboot} / lxc.{start,stop,reboot}` 共 11 条命令；HTTP client 采用 PVE API Token（`PVEAPIToken=<id>=<secret>`），支持 `insecure_tls` + 自定义 timeout；`settingsSchema.endpoints[].token_secret` 打上 `secret: true`，可选 `token_secret_env` 走环境变量；错误码 `PVE_UNAUTHORIZED / PVE_NOT_FOUND / PVE_UPSTREAM / PVE_UNREACHABLE / PVE_ENDPOINT_MISSING / PARAM_INVALID / ENCODE_FAILED / PVE_DECODE_FAILED / PVE_REQUEST_INVALID / PVE_BAD_REQUEST`；`commands_test.go` 起 `httptest.NewTLSServer` 覆盖成功路径 / 401 / 404 / 缺 token / 未知 endpoint / stop force=true 走 `/status/stop`、force=false 走 `/status/shutdown`；`manifest_test.go` 保证 Manifest 与运行时 Metadata / Commands 完全对齐。
+- **CI / Release 兼容矩阵接入**：[ci.yml](./.github/workflows/ci.yml) 的 build / vet / unit-test / gosec 循环全部扩展到 `plugins/pve`；[release.yml](./.github/workflows/release.yml) 新增 `Build PVE Plugin` step；[scripts/build-catalog.go](./scripts/build-catalog.go) 默认 `-plugins ssh,docker,ai,pve`；`release.yml` 传参同步；[scripts/release-smoke.{sh,ps1}](./scripts/release-smoke.sh) Phase 1 加入 `pve` 校验；[scripts/lint.sh](./scripts/lint.sh) / [lint.ps1](./scripts/lint.ps1) 加入 `plugins/pve`；`go.work` 加入 `./plugins/pve`。
+- **文档更新**：[roadmap.md v0.5.2](./docs/roadmap.md#v052--schema-驱动的配置-ui--pve-参考实现闭环验证-进行中) 三条主线打勾；[development-plan-v0.5-v1.0.md §4.4.1](./docs/development-plan-v0.5-v1.0.md#441-v052-发布门槛) 5/6 门槛勾选（余下"生命周期文档"待 v0.5.2 验收清单）。
+
 ### v0.5.1 P0–P3 — 生命周期完整链路 + 本地 Catalog + Desktop Marketplace + Release Catalog
 
 - **P0 · Catalog → Install/Update 打通**：新增 `core/plugin.Download`（支持 http/https/file，sha256 强校验，tar.gz/zip/裸 json，路径穿越 + symlink 拒绝，`MaxBytes` 默认 256 MiB）与 `Installer`（把 `catalog.Client + Download + Lifecycle` 串成 `Install/Update`）；CLI `mow plugin install|update` 现在同时接受本地包路径与 `id[@version]` catalog 引用（`--path` / `--catalog` 可强制），E2E `plugin_install_e2e_test.go` 覆盖静态 httptest catalog + tar.gz artifacts 走 `install → list → update → uninstall --purge` 全链路，checksum 篡改场景不留半成品。

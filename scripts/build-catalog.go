@@ -8,7 +8,7 @@
 //	    -artifacts ./artifacts \
 //	    -version v0.5.1 \
 //	    -base-url "https://github.com/mow/mow/releases/download/v0.5.1" \
-//	    -plugins ssh,docker,ai \
+//	    -plugins ssh,docker,ai,pve \
 //	    -source official \
 //	    -out ./artifacts/catalog.json
 //
@@ -102,7 +102,7 @@ type artifact struct {
 }
 
 func main() {
-	pluginsList := flag.String("plugins", "ssh,docker,ai", "comma-separated plugin ids")
+	pluginsList := flag.String("plugins", "ssh,docker,ai,pve", "comma-separated plugin ids")
 	pluginsDir := flag.String("plugins-dir", "plugins", "directory containing plugins/<id>/plugin.json")
 	artifactsDir := flag.String("artifacts", "artifacts", "directory containing release tar.gz files")
 	baseURL := flag.String("base-url", "", "artifact URL prefix, e.g. https://github.com/mow/mow/releases/download/v0.5.1")

@@ -25,7 +25,7 @@ chmod +x "$INSTALL/mow"
 # ---------------------------------------------------------------------------
 # Phase 1: plugin validate 冒烟（保持原有语义，用于覆盖 legacy path）
 # ---------------------------------------------------------------------------
-for id in ssh docker ai; do
+for id in ssh docker ai pve; do
   archive="$ARTIFACT_DIR/mow-${id}-plugin-${TARGET}-${ARCH}.tar.gz"
   test -f "$archive"
   package="$PLUGINS/$id"
@@ -93,7 +93,7 @@ JSON
 
 # refresh + search 冒烟
 "$INSTALL/mow" --config "$ROOT/config-catalog.json" plugin catalog refresh
-"$INSTALL/mow" --config "$ROOT/config-catalog.json" plugin search | grep -Eq 'ssh|docker|ai'
+"$INSTALL/mow" --config "$ROOT/config-catalog.json" plugin search | grep -Eq 'ssh|docker|ai|pve'
 # 从 catalog 装一个插件（挑 ssh，它编译最快、依赖最简单）
 "$INSTALL/mow" --config "$ROOT/config-catalog.json" plugin install ssh
 "$INSTALL/mow" --config "$ROOT/config-catalog.json" plugin list | grep -q 'ssh'

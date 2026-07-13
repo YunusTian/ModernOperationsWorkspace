@@ -156,7 +156,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for m in core apps/cli apps/desktop plugins/ssh plugins/docker plugins/ai sdk tests/e2e; do
+          for m in core apps/cli apps/desktop plugins/ssh plugins/docker plugins/ai plugins/pve sdk tests/e2e; do
             echo "--- build $m ---"
             (cd "$m" && go build ./...)
           done
@@ -165,7 +165,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for m in core apps/cli apps/desktop plugins/ssh plugins/docker plugins/ai sdk tests/e2e; do
+          for m in core apps/cli apps/desktop plugins/ssh plugins/docker plugins/ai plugins/pve sdk tests/e2e; do
             (cd "$m" && go vet ./...)
           done
 
@@ -179,6 +179,7 @@ jobs:
           (cd plugins/ssh && go test -count=1 ./...)
           (cd plugins/docker && go test -count=1 ./...)
           (cd plugins/ai && go test -count=1 ./...)
+          (cd plugins/pve && go test -count=1 ./...)
           (cd sdk && go test -count=1 ./...)
 
       - name: Download prebuilt SSH plugin
@@ -257,7 +258,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for m in core apps/cli apps/desktop plugins/ssh plugins/docker plugins/ai sdk tests/e2e; do
+          for m in core apps/cli apps/desktop plugins/ssh plugins/docker plugins/ai plugins/pve sdk tests/e2e; do
             echo "--- gosec $m ---"
             # G115 flags well-bounded terminal fd / process exit-code casts in
             # existing cross-platform adapters; keep the established policy
