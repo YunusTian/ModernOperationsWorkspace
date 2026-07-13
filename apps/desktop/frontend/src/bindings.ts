@@ -374,6 +374,71 @@ export type PluginVM = {
   platform?: string;
 };
 
+// Catalog（v0.5.1 P1）
+export type CatalogSourceVM = {
+  name: string;
+  url: string;
+  trusted: boolean;
+  cache_path?: string;
+};
+
+export type CatalogArtifact = {
+  os: string;
+  arch: string;
+  url: string;
+  checksum: string;
+  size?: number;
+};
+
+export type CatalogCompatibility = {
+  core?: string;
+  sdk?: string;
+  protocol?: string;
+};
+
+export type CatalogRelease = {
+  version: string;
+  yanked?: boolean;
+  compatibility: CatalogCompatibility;
+  platforms: CatalogArtifact[];
+  releaseNotes?: string;
+  publishedAt?: string;
+};
+
+export type CatalogEntry = {
+  id: string;
+  name?: string;
+  description?: string;
+  author?: string;
+  license?: string;
+  homepage?: string;
+  tags?: string[];
+  versions: CatalogRelease[];
+};
+
+export type CatalogSearchResultVM = {
+  source: string;
+  url: string;
+  from_cache: boolean;
+  error?: string;
+  entries?: CatalogEntry[];
+};
+
+export type CatalogRefreshResultVM = {
+  source: string;
+  url: string;
+  ok: boolean;
+  from_cache: boolean;
+  num_entries?: number;
+  fetched_at?: string;
+  error?: string;
+};
+
+export type CatalogInstallInput = {
+  id: string;
+  version?: string;
+};
+
 // 通过 wails 运行时 (window.go.main.App) 调用方法；
 // 若绑定不存在（如 vite dev 未连上 wails），返回一个明确错误便于排查。
 function call<T = unknown>(name: string, ...args: unknown[]): Promise<T> {
@@ -468,6 +533,17 @@ export const App = {
   UninstallPlugin: (id: string, purge: boolean) =>
     call<void>("UninstallPlugin", id, purge),
   DoctorPlugin: (id: string) => call<PluginVM>("DoctorPlugin", id),
+
+  // v0.5.1 P1 Catalog
+  ListCatalogSources: () => call<CatalogSourceVM[]>("ListCatalogSources"),
+  RefreshCatalog: (force: boolean) =>
+    call<CatalogRefreshResultVM[]>("RefreshCatalog", force),
+  SearchCatalog: (query: string) =>
+    call<CatalogSearchResultVM[]>("SearchCatalog", query),
+  InstallPluginFromCatalog: (in_: CatalogInstallInput) =>
+    call<PluginVM>("InstallPluginFromCatalog", in_),
+  UpdatePluginFromCatalog: (in_: CatalogInstallInput) =>
+    call<PluginVM>("UpdatePluginFromCatalog", in_),
 };
 
 // -----------------------------------------------------------------------------

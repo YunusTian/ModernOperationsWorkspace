@@ -67,6 +67,11 @@ type App struct {
 	// Workflow 侧的共享注册表；惰性构造，见 workflow.go: workflowRecipes()。
 	wfMu  sync.Mutex
 	wfReg *recipe.Registry
+
+	// Catalog 客户端懒加载（v0.5.1 P1）：ListCatalogSources / RefreshCatalog /
+	// SearchCatalog / InstallPluginFromCatalog 等方法共享。
+	catalogStateMu sync.Mutex
+	catalogSt      *catalogState
 }
 
 // Version returns the application version injected from the repository-wide
