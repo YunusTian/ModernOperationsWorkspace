@@ -102,6 +102,17 @@ type PluginConfig struct {
 	Settings json.RawMessage `json:"settings,omitempty"`
 }
 
+// DefaultOfficialCatalogURL 是官方 Catalog 的 canonical URL（v0.5.1）。
+//
+// 该 URL 指向仓库随每次 release 发布的 catalog.json：
+//   - 由 .github/workflows/release.yml 中的 build-catalog 步骤生成
+//   - 内容包含所有官方插件（ssh / docker / ai）的多平台产物地址与 sha256
+//
+// 我们始终指向 `latest` 而不是某个具体 tag，用户升级 MOW 后无需改 config
+// 即可看到最新可用的插件版本；具体版本约束由 Manifest 的 compatibility.core
+// 与 Catalog Client 一起过滤。
+const DefaultOfficialCatalogURL = "https://github.com/mow/mow/releases/latest/download/catalog.json"
+
 // Default 返回一份合理的默认配置。
 func Default() Config {
 	home, _ := os.UserHomeDir()
@@ -113,6 +124,13 @@ func Default() Config {
 			PluginsDir: filepath.Join(dataDir, "plugins"),
 			Catalog: CatalogConfig{
 				CacheDir: filepath.Join(dataDir, "catalog-cache"),
+				Sources: []CatalogSource{
+					{
+						Name:    "official",
+						URL:     DefaultOfficialCatalogURL,
+						Trusted: true,
+					},
+				},
 			},
 		},
 		Logger: LoggerConfig{

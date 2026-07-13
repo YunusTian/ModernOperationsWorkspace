@@ -195,9 +195,56 @@ jobs:
             *.sha256
           retention-days: 1
 
+  # =========================================================================
+  # 汇总所有平台的 tar.gz，生成官方 catalog.json（v0.5.1 P2）。
+  # 该 catalog 会与 CLI 一起上传到 Release，前端 catalog 客户端可直接消费。
+  # =========================================================================
+  catalog:
+    name: build-catalog
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: '**/go.sum'
+
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate catalog.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          PUBLISHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          go run ./scripts/build-catalog.go \
+            -plugins ssh,docker,ai \
+            -artifacts artifacts \
+            -base-url "${BASE_URL}" \
+            -version "${TAG}" \
+            -published-at "${PUBLISHED_AT}" \
+            -source official \
+            -out artifacts/catalog.json
+          echo "---- catalog.json ----"
+          cat artifacts/catalog.json
+
+      - name: Upload catalog artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog
+          path: artifacts/catalog.json
+          retention-days: 1
+
   smoke:
     name: install-smoke (${{ matrix.target }}/${{ matrix.arch }})
-    needs: build
+    needs: [build, catalog]
     strategy:
       fail-fast: false
       matrix:
@@ -211,6 +258,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: binaries-${{ matrix.target }}-${{ matrix.arch }}
+          path: artifacts
+      - name: Download catalog
+        uses: actions/download-artifact@v4
+        with:
+          name: catalog
           path: artifacts
       - name: Verify archive checksums (Unix)
         if: runner.os != 'Windows'
@@ -239,7 +291,7 @@ jobs:
   # =========================================================================
   release:
     name: release
-    needs: [build, smoke]
+    needs: [build, catalog, smoke]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -306,6 +358,7 @@ jobs:
             artifacts/*.tar.gz
             artifacts/*.sha256
             artifacts/SHA256SUMS
+            artifacts/catalog.json
           draft: false
           prerelease: ${{ steps.prerelease.outputs.value == 'true' }}
           generate_release_notes: false

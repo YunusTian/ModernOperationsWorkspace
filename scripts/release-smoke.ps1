@@ -16,6 +16,10 @@ try {
     tar -xzf $cliArchive -C $install
 
     $mow = Join-Path $install "mow.exe"
+
+    # ------------------------------------------------------------------
+    # Phase 1: plugin validate 冒烟（保持原有语义，覆盖 legacy path）
+    # ------------------------------------------------------------------
     foreach ($id in @("ssh", "docker", "ai")) {
         $archive = Join-Path $ArtifactDir "mow-$id-plugin-$Target-$Arch.tar.gz"
         if (!(Test-Path -LiteralPath $archive)) { throw "$id release archive is missing from $ArtifactDir" }
@@ -42,6 +46,62 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "mow ai providers failed with exit code $LASTEXITCODE" }
     if (($providers -join "`n") -notmatch "mock") { throw "mock provider missing: $providers" }
     Write-Output "release package + runtime smoke passed: target=$Target arch=$Arch version=$version"
+
+    # ------------------------------------------------------------------
+    # Phase 2: 通过 catalog 走 refresh → search → install → uninstall
+    # ------------------------------------------------------------------
+    $catJson = Join-Path $ArtifactDir "catalog.json"
+    if (!(Test-Path -LiteralPath $catJson)) {
+        Write-Output "catalog.json not present; skipping catalog smoke"
+        return
+    }
+    # 派生 catalog：把 URL 全部改写为 file:// 指向本地 artifact 目录
+    $catObj = Get-Content -LiteralPath $catJson -Raw | ConvertFrom-Json
+    foreach ($e in $catObj.entries) {
+        foreach ($r in $e.versions) {
+            foreach ($p in $r.platforms) {
+                $fname = ([Uri]$p.url).Segments[-1]
+                $local = (Resolve-Path -LiteralPath (Join-Path $ArtifactDir $fname)).Path
+                # file:///C:/... 形式，Windows 需要 3 个斜杠且盘符前有斜杠
+                $p.url = "file:///" + ($local -replace "\\", "/")
+            }
+        }
+    }
+    $derivedCat = Join-Path $root "catalog.json"
+    $catObj | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $derivedCat -Encoding UTF8
+
+    $catalogPlugins = Join-Path $root "plugins-catalog"
+    New-Item -ItemType Directory -Force -Path $catalogPlugins | Out-Null
+    $catalogCache = Join-Path $root "catalog-cache"
+    $catConfig = @{
+        version = 1
+        app = @{
+            data_dir     = $data
+            plugins_dir  = $catalogPlugins
+            catalog      = @{
+                cache_dir = $catalogCache
+                sources   = @(@{ name = "local"; url = "file:///" + ($derivedCat -replace "\\", "/") })
+            }
+        }
+    }
+    $catConfigPath = Join-Path $root "config-catalog.json"
+    ($catConfig | ConvertTo-Json -Depth 10) | Set-Content -LiteralPath $catConfigPath -Encoding UTF8
+
+    & $mow --config $catConfigPath plugin catalog refresh
+    if ($LASTEXITCODE -ne 0) { throw "plugin catalog refresh failed" }
+    $search = & $mow --config $catConfigPath plugin search
+    if ($LASTEXITCODE -ne 0) { throw "plugin search failed" }
+    if (($search -join "`n") -notmatch "ssh|docker|ai") { throw "no known plugin in search output" }
+    & $mow --config $catConfigPath plugin install ssh
+    if ($LASTEXITCODE -ne 0) { throw "plugin install ssh (catalog) failed" }
+    $list = & $mow --config $catConfigPath plugin list
+    if ($LASTEXITCODE -ne 0) { throw "plugin list failed" }
+    if (($list -join "`n") -notmatch "ssh") { throw "installed plugin ssh missing from list" }
+    & $mow --config $catConfigPath plugin uninstall ssh --purge
+    if ($LASTEXITCODE -ne 0) { throw "plugin uninstall failed" }
+    $sshDir = Join-Path $catalogPlugins "ssh"
+    if (Test-Path -LiteralPath $sshDir) { throw "ssh dir should have been removed" }
+    Write-Output "catalog install smoke passed"
 }
 finally {
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
