@@ -82,7 +82,7 @@ func Download(ctx context.Context, rawURL, checksum string, opts DownloadOptions
 	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 		return "", err
 	}
-	if err := extract(blobPath, pkgDir); err != nil {
+	if err := extract(blobPath, pkgDir, opts.MaxBytes); err != nil {
 		return "", err
 	}
 	// 4) 修正 root：允许 archive 顶层包一层目录
@@ -106,7 +106,12 @@ func fetchTo(ctx context.Context, hc *http.Client, u *url.URL, dest string, maxB
 		if len(p) >= 3 && p[0] == '/' && p[2] == ':' {
 			p = p[1:]
 		}
-		src, err := os.Open(p)
+		root, err := os.OpenRoot(filepath.Dir(p))
+		if err != nil {
+			return fmt.Errorf("plugin download: open root for %s: %w", p, err)
+		}
+		defer root.Close()
+		src, err := root.Open(filepath.Base(p))
 		if err != nil {
 			return fmt.Errorf("plugin download: open %s: %w", p, err)
 		}
@@ -204,15 +209,15 @@ func guessExt(u *url.URL) string {
 }
 
 // extract 把 blob 展开到 dest。识别 .tar.gz/.tgz、.tar、.zip，以及"裸 plugin.json"三种。
-func extract(blobPath, dest string) error {
+func extract(blobPath, dest string, maxBytes int64) error {
 	lower := strings.ToLower(blobPath)
 	switch {
 	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
-		return extractTar(blobPath, dest, true)
+		return extractTar(blobPath, dest, true, maxBytes)
 	case strings.HasSuffix(lower, ".tar"):
-		return extractTar(blobPath, dest, false)
+		return extractTar(blobPath, dest, false, maxBytes)
 	case strings.HasSuffix(lower, ".zip"):
-		return extractZip(blobPath, dest)
+		return extractZip(blobPath, dest, maxBytes)
 	case strings.HasSuffix(lower, ".json"):
 		// 只有 plugin.json 也允许（v0.5.1 file:// 场景的极简形式）
 		return copyFile(blobPath, filepath.Join(dest, "plugin.json"))
@@ -226,12 +231,12 @@ func extract(blobPath, dest string) error {
 	_, _ = io.ReadFull(f, head)
 	f.Close()
 	if string(head) == "PK\x03\x04" {
-		return extractZip(blobPath, dest)
+		return extractZip(blobPath, dest, maxBytes)
 	}
-	return extractTar(blobPath, dest, true)
+	return extractTar(blobPath, dest, true, maxBytes)
 }
 
-func extractTar(blobPath, dest string, gzipped bool) error {
+func extractTar(blobPath, dest string, gzipped bool, maxBytes int64) error {
 	f, err := os.Open(blobPath)
 	if err != nil {
 		return err
@@ -247,6 +252,7 @@ func extractTar(blobPath, dest string, gzipped bool) error {
 		r = gz
 	}
 	tr := tar.NewReader(r)
+	remaining := maxBytes
 	for {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
@@ -265,16 +271,26 @@ func extractTar(blobPath, dest string, gzipped bool) error {
 				return err
 			}
 		case tar.TypeReg, tar.TypeRegA:
+			if hdr.Size < 0 || hdr.Size > remaining {
+				return fmt.Errorf("plugin download: extracted content exceeds max %d bytes", maxBytes)
+			}
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(out, tr); err != nil {
+			if _, err := io.CopyN(out, tr, hdr.Size); err != nil {
 				out.Close()
 				return err
+			}
+			remaining -= hdr.Size
+			if hdr.FileInfo().Mode()&0o111 != 0 {
+				if err := out.Chmod(0o700); err != nil { // #nosec G302 -- executable plugin entries require owner execute permission
+					out.Close()
+					return err
+				}
 			}
 			if err := out.Close(); err != nil {
 				return err
@@ -288,12 +304,13 @@ func extractTar(blobPath, dest string, gzipped bool) error {
 	return nil
 }
 
-func extractZip(blobPath, dest string) error {
+func extractZip(blobPath, dest string, maxBytes int64) error {
 	zr, err := zip.OpenReader(blobPath)
 	if err != nil {
 		return fmt.Errorf("plugin download: zip: %w", err)
 	}
 	defer zr.Close()
+	remaining := uint64(maxBytes)
 	for _, entry := range zr.File {
 		target, err := safeJoin(dest, entry.Name)
 		if err != nil {
@@ -308,6 +325,9 @@ func extractZip(blobPath, dest string) error {
 		if entry.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("plugin download: symlink %q is not allowed", entry.Name)
 		}
+		if entry.UncompressedSize64 > remaining {
+			return fmt.Errorf("plugin download: extracted content exceeds max %d bytes", maxBytes)
+		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
@@ -315,15 +335,23 @@ func extractZip(blobPath, dest string) error {
 		if err != nil {
 			return err
 		}
-		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 		if err != nil {
 			in.Close()
 			return err
 		}
-		if _, err := io.Copy(out, in); err != nil {
+		if _, err := io.CopyN(out, in, int64(entry.UncompressedSize64)); err != nil {
 			in.Close()
 			out.Close()
 			return err
+		}
+		remaining -= entry.UncompressedSize64
+		if entry.Mode()&0o111 != 0 {
+			if err := out.Chmod(0o700); err != nil { // #nosec G302 -- executable plugin entries require owner execute permission
+				in.Close()
+				out.Close()
+				return err
+			}
 		}
 		in.Close()
 		if err := out.Close(); err != nil {
@@ -387,7 +415,7 @@ func copyFile(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}

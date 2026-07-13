@@ -112,6 +112,51 @@ func TestDownloadRespectsMaxBytes(t *testing.T) {
 	}
 }
 
+func TestDownloadRejectsExpandedArchiveOverMax(t *testing.T) {
+	large := bytes.Repeat([]byte("x"), 64*1024)
+
+	tarBuf := new(bytes.Buffer)
+	gz := gzip.NewWriter(tarBuf)
+	tw := tar.NewWriter(gz)
+	writeTarFile(t, tw, "plugin.json", []byte("{}"))
+	writeTarFile(t, tw, "bin/plugin", large)
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	zipBuf := new(bytes.Buffer)
+	zw := zip.NewWriter(zipBuf)
+	for name, data := range map[string][]byte{"plugin.json": []byte("{}"), "bin/plugin": large} {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write(data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, archive := range map[string][]byte{"pkg.tar.gz": tarBuf.Bytes(), "pkg.zip": zipBuf.Bytes()} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write(archive)
+			}))
+			defer srv.Close()
+			maxBytes := int64(len(archive) + 1024)
+			_, err := Download(context.Background(), srv.URL+"/"+name, "sha256:"+sha256Sum(archive), DownloadOptions{MaxBytes: maxBytes})
+			if err == nil || !strings.Contains(err.Error(), "extracted content exceeds") {
+				t.Fatalf("expected expanded-size rejection, got %v", err)
+			}
+		})
+	}
+}
+
 func TestDownloadFileSchemeAndRejectTraversal(t *testing.T) {
 	pkg := buildSamplePackage(t)
 	// 制造一个包含穿越条目的 tar.gz
