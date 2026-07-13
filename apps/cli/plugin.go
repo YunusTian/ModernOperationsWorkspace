@@ -29,6 +29,8 @@ func newPluginCmd(holder *appHolder) *cobra.Command {
 		newPluginValidateCmd(),
 		newPluginListCmd(holder),
 		newPluginInstallCmd(holder),
+		newPluginUpdateCmd(holder),
+		newPluginUninstallCmd(holder),
 		newPluginToggleCmd(holder, true),
 		newPluginToggleCmd(holder, false),
 		newPluginDoctorCmd(holder),
@@ -99,6 +101,64 @@ func newPluginInstallCmd(holder *appHolder) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newPluginUpdateCmd(holder *appHolder) *cobra.Command {
+	return &cobra.Command{
+		Use:   "update <package>",
+		Short: "Update an installed plugin from a validated local package",
+		Long: `Update swaps an installed plugin with the version found at <package>.
+The new package is validated, staged in a temporary directory, and the
+existing installation is atomically replaced. On failure the previous
+version is restored from a backup.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			lifecycle, err := pluginLifecycle(holder)
+			if err != nil {
+				return err
+			}
+			item, err := lifecycle.Update(args[0])
+			if err != nil {
+				return err
+			}
+			state := "disabled"
+			if item.Enabled {
+				state = "enabled"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Updated %s@%s (%s).\n", item.ID, item.Version, state)
+			return nil
+		},
+	}
+}
+
+func newPluginUninstallCmd(holder *appHolder) *cobra.Command {
+	var purge bool
+	cmd := &cobra.Command{
+		Use:   "uninstall <id>",
+		Short: "Uninstall a plugin, preserving state unless --purge is given",
+		Long: `Uninstall removes the plugin's package directory. By default the
+persisted state (enabled/disabled flag under .state/<id>.json) is kept so
+that reinstalling the plugin restores its previous enable state. Pass
+--purge to also delete the state file.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			lifecycle, err := pluginLifecycle(holder)
+			if err != nil {
+				return err
+			}
+			if err := lifecycle.Uninstall(args[0], purge); err != nil {
+				return err
+			}
+			if purge {
+				fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s (state purged).\n", args[0])
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s (state preserved).\n", args[0])
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&purge, "purge", false, "also delete persisted plugin state (.state/<id>.json)")
+	return cmd
 }
 
 func newPluginToggleCmd(holder *appHolder, enabled bool) *cobra.Command {

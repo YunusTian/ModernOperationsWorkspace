@@ -243,3 +243,94 @@ func TestPluginLifecycleCLI_LocalInstallAndState(t *testing.T) {
 		t.Fatalf("json list after disable: %v\n%s", err, out)
 	}
 }
+
+func TestPluginLifecycleCLI_UpdateAndUninstall(t *testing.T) {
+	packageDir, _ := buildTestPackage(t)
+	rootDir := t.TempDir()
+	configPath := filepath.Join(rootDir, "config.json")
+	cfg := config.Default()
+	cfg.App.DataDir = filepath.Join(rootDir, "data")
+	cfg.App.PluginsDir = filepath.Join(rootDir, "plugins")
+	if err := config.Save(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(args ...string) (string, string, error) {
+		t.Helper()
+		root := newRootCmd()
+		var stdout, stderr bytes.Buffer
+		root.SetOut(&stdout)
+		root.SetErr(&stderr)
+		root.SetArgs(append([]string{"--config", configPath, "plugin"}, args...))
+		err := root.Execute()
+		return stdout.String(), stderr.String(), err
+	}
+
+	// v1 install
+	if out, _, err := run("install", packageDir); err != nil {
+		t.Fatalf("install: %v\n%s", err, out)
+	}
+	if _, _, err := run("enable", "sample"); err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+
+	// build a v2 package with the same id.
+	v2Dir := t.TempDir()
+	content := []byte("test-binary-v2\n")
+	sum := sha256.Sum256(content)
+	checksum := "sha256:" + hex.EncodeToString(sum[:])
+	mustMkdir(t, filepath.Join(v2Dir, "bin"))
+	mustMkdir(t, filepath.Join(v2Dir, "recipes"))
+	mustMkdir(t, filepath.Join(v2Dir, "workflows"))
+	mustWrite(t, filepath.Join(v2Dir, "bin", "entrypoint"), content)
+	mustWrite(t, filepath.Join(v2Dir, "recipes", "cpu.yaml"), []byte("id: cpu\n"))
+	mustWrite(t, filepath.Join(v2Dir, "workflows", "deploy.yaml"), []byte("name: deploy\n"))
+	m := `{
+  "manifestVersion": 1,
+  "id": "sample",
+  "name": "Sample",
+  "version": "0.5.1",
+  "compatibility": {"core": ">=0.5.0,<0.6.0"},
+  "platforms": [
+    {"os": "linux", "arch": "amd64", "entrypoint": "bin/entrypoint", "checksum": "` + checksum + `"}
+  ],
+  "recipes":   [{"id": "cpu",    "path": "recipes/cpu.yaml"}],
+  "workflows": [{"id": "deploy", "path": "workflows/deploy.yaml"}]
+}`
+	mustWrite(t, filepath.Join(v2Dir, manifest.ManifestFileName), []byte(m))
+
+	if out, _, err := run("update", v2Dir); err != nil {
+		t.Fatalf("update: %v\n%s", err, out)
+	} else if !strings.Contains(out, "Updated sample@0.5.1") || !strings.Contains(out, "enabled") {
+		t.Fatalf("unexpected update output: %s", out)
+	}
+	if out, _, err := run("list"); err != nil || !strings.Contains(out, "sample\t0.5.1\tenabled") {
+		t.Fatalf("list after update: %v\n%s", err, out)
+	}
+
+	// uninstall (preserve state)
+	if out, _, err := run("uninstall", "sample"); err != nil {
+		t.Fatalf("uninstall: %v\n%s", err, out)
+	} else if !strings.Contains(out, "state preserved") {
+		t.Fatalf("unexpected uninstall output: %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.App.PluginsDir, "sample")); !os.IsNotExist(err) {
+		t.Fatalf("plugin directory should be gone: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.App.PluginsDir, ".state", "sample.json")); err != nil {
+		t.Fatalf("state file should be preserved: %v", err)
+	}
+
+	// reinstall + uninstall --purge
+	if _, _, err := run("install", v2Dir); err != nil {
+		t.Fatalf("reinstall: %v", err)
+	}
+	if out, _, err := run("uninstall", "sample", "--purge"); err != nil {
+		t.Fatalf("uninstall --purge: %v\n%s", err, out)
+	} else if !strings.Contains(out, "state purged") {
+		t.Fatalf("unexpected purge output: %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.App.PluginsDir, ".state", "sample.json")); !os.IsNotExist(err) {
+		t.Fatalf("state file should be purged: %v", err)
+	}
+}

@@ -90,6 +90,138 @@ func (l *Lifecycle) Install(source string) (Installation, error) {
 	return item, nil
 }
 
+// Uninstall 删除已安装的插件目录。默认保留 .state/<id>.json，方便再次安装时
+// 恢复启用状态；调用方可通过 purge=true 显式清除状态数据。
+func (l *Lifecycle) Uninstall(id string, purge bool) error {
+	if !lifecycleIDPattern.MatchString(id) {
+		return fmt.Errorf("invalid plugin id %q", id)
+	}
+	destination := filepath.Join(l.dir, id)
+	info, err := os.Stat(destination)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("plugin %q is not installed", id)
+		}
+		return fmt.Errorf("stat installed plugin %q: %w", id, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("plugin %q installation is not a directory", id)
+	}
+
+	// 先将目录 rename 到临时位置，rename 失败时不留半成品。
+	trash, err := os.MkdirTemp(l.dir, ".uninstall-"+id+"-")
+	if err != nil {
+		return fmt.Errorf("create uninstall staging directory: %w", err)
+	}
+	// 空临时目录不能作为 rename 目标（需要目标不存在或为空的父目录），因此先移除自己。
+	if err := os.Remove(trash); err != nil {
+		return fmt.Errorf("prepare uninstall staging: %w", err)
+	}
+	if err := os.Rename(destination, trash); err != nil {
+		return fmt.Errorf("detach plugin %q: %w", id, err)
+	}
+	if err := os.RemoveAll(trash); err != nil {
+		return fmt.Errorf("remove plugin %q: %w", id, err)
+	}
+
+	if purge {
+		statePath := l.statePath(id)
+		if err := os.Remove(statePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("purge plugin state %q: %w", id, err)
+		}
+		_ = os.Remove(statePath + ".bak")
+	}
+	return nil
+}
+
+// Update 使用 source 处的新版本替换已安装的插件，遵循先校验→原子替换→
+// 失败回退的顺序。启用状态在升级过程中保持不变。
+func (l *Lifecycle) Update(source string) (Installation, error) {
+	mf, err := manifest.Load(source)
+	if err != nil {
+		return Installation{}, err
+	}
+	if _, err := manifest.ValidatePackage(source); err != nil {
+		return Installation{}, err
+	}
+	sourceDir, err := packageDirectory(source)
+	if err != nil {
+		return Installation{}, err
+	}
+	destination := filepath.Join(l.dir, mf.ID)
+	if _, err := manifest.Load(destination); err != nil {
+		return Installation{}, fmt.Errorf("plugin %q is not installed: %w", mf.ID, err)
+	}
+
+	staging, err := os.MkdirTemp(l.dir, ".update-"+mf.ID+"-")
+	if err != nil {
+		return Installation{}, fmt.Errorf("create update staging directory: %w", err)
+	}
+	stagingCleanup := staging
+	defer func() {
+		if stagingCleanup != "" {
+			_ = os.RemoveAll(stagingCleanup)
+		}
+	}()
+	if err := copyPackage(sourceDir, staging); err != nil {
+		return Installation{}, err
+	}
+	if _, err := manifest.ValidatePackage(staging); err != nil {
+		return Installation{}, fmt.Errorf("validate staged plugin: %w", err)
+	}
+
+	// 备份现有目录：先 rename 到同级 .backup 目录，为失败时快速回退准备。
+	backup, err := os.MkdirTemp(l.dir, ".update-backup-"+mf.ID+"-")
+	if err != nil {
+		return Installation{}, fmt.Errorf("create update backup directory: %w", err)
+	}
+	if err := os.Remove(backup); err != nil {
+		return Installation{}, fmt.Errorf("prepare update backup: %w", err)
+	}
+	if err := os.Rename(destination, backup); err != nil {
+		return Installation{}, fmt.Errorf("backup plugin %q: %w", mf.ID, err)
+	}
+
+	// 原子替换：将 staging 目录 rename 到目的地。
+	if err := os.Rename(staging, destination); err != nil {
+		// 回退：尝试恢复备份。
+		if restoreErr := os.Rename(backup, destination); restoreErr != nil {
+			return Installation{}, fmt.Errorf("activate updated plugin %q: %w (rollback failed: %v)", mf.ID, err, restoreErr)
+		}
+		return Installation{}, fmt.Errorf("activate updated plugin %q: %w", mf.ID, err)
+	}
+	stagingCleanup = ""
+
+	// 至此新版本已就位。若 state 更新失败，回退整个升级。
+	item, err := l.readState(mf.ID)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		l.rollbackUpdate(destination, backup)
+		return Installation{}, err
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		item = Installation{ID: mf.ID, Installed: l.now().UTC()}
+	}
+	item.ID = mf.ID
+	item.Version = mf.Version
+	if err := l.writeState(item); err != nil {
+		l.rollbackUpdate(destination, backup)
+		return Installation{}, err
+	}
+
+	// 一切正常，清理备份。
+	if err := os.RemoveAll(backup); err != nil {
+		return Installation{}, fmt.Errorf("cleanup update backup: %w", err)
+	}
+	return item, nil
+}
+
+// rollbackUpdate 在原子替换成功之后但后续步骤失败时使用，尝试删除新版本
+// 并把备份 rename 回原位置。best-effort：失败仅记录到返回错误链之外。
+func (l *Lifecycle) rollbackUpdate(destination, backup string) {
+	_ = os.RemoveAll(destination)
+	_ = os.Rename(backup, destination)
+}
+
 func (l *Lifecycle) List() ([]Installation, error) {
 	entries, err := os.ReadDir(l.dir)
 	if err != nil {
