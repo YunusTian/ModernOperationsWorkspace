@@ -439,6 +439,34 @@ export type CatalogInstallInput = {
   version?: string;
 };
 
+// v0.5.2 P1 —— Plugin Settings (schema-driven config UI)
+export type PluginSettingsField = {
+  path: string;
+  type?: string;
+  title?: string;
+  description?: string;
+  secret?: boolean;
+  required?: boolean;
+  default?: unknown;
+  enum?: unknown[];
+  format?: string;
+  depth: number;
+  minimum?: number;
+  maximum?: number;
+  min_length?: number;
+  max_length?: number;
+  pattern?: string;
+};
+
+export type PluginSettingsVM = {
+  id: string;
+  has_schema: boolean;
+  enabled: boolean;
+  fields?: PluginSettingsField[];
+  settings: unknown;
+  secret_paths?: string[];
+};
+
 // 通过 wails 运行时 (window.go.main.App) 调用方法；
 // 若绑定不存在（如 vite dev 未连上 wails），返回一个明确错误便于排查。
 function call<T = unknown>(name: string, ...args: unknown[]): Promise<T> {
@@ -544,6 +572,13 @@ export const App = {
     call<PluginVM>("InstallPluginFromCatalog", in_),
   UpdatePluginFromCatalog: (in_: CatalogInstallInput) =>
     call<PluginVM>("UpdatePluginFromCatalog", in_),
+
+  // v0.5.2 P1 Plugin Settings
+  GetPluginSchema: (id: string) => call<PluginSettingsVM>("GetPluginSchema", id),
+  GetPluginSettings: (id: string) =>
+    call<PluginSettingsVM>("GetPluginSettings", id),
+  SetPluginSettings: (id: string, patch: unknown) =>
+    call<PluginSettingsVM>("SetPluginSettings", id, patch),
 };
 
 // -----------------------------------------------------------------------------

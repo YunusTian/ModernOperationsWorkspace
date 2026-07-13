@@ -8,10 +8,12 @@ import {
   CatalogSearchResultVM,
   CatalogRefreshResultVM,
   CatalogSourceVM,
+  PluginSettingsField,
+  PluginSettingsVM,
 } from "../bindings";
 
 // PluginsPage 提供两个标签页：
-//   - Installed：已安装插件的健康状态与启停 / 卸载 / 诊断
+//   - Installed：已安装插件的健康状态、启停 / 卸载 / 诊断 / Settings
 //   - Marketplace：从 Catalog 搜索、刷新、安装 / 升级
 type PluginsTab = "installed" | "marketplace";
 
@@ -25,6 +27,8 @@ export default function PluginsPage() {
     id: string;
     purge: boolean;
   } | null>(null);
+  // v0.5.2 P1：schema-driven 配置抽屉
+  const [settingsFor, setSettingsFor] = useState<string>("");
 
   const load = useCallback(() => {
     setErr("");
@@ -165,6 +169,12 @@ export default function PluginsPage() {
                     </button>
                     <button
                       disabled={busy === p.id}
+                      onClick={() => setSettingsFor(p.id)}
+                    >
+                      Settings
+                    </button>
+                    <button
+                      disabled={busy === p.id}
                       onClick={() => setConfirmDelete({ id: p.id, purge: false })}
                       className="pl-danger"
                     >
@@ -196,6 +206,14 @@ export default function PluginsPage() {
           onCancel={() => setConfirmDelete(null)}
           onConfirm={() => uninstall(confirmDelete.id, confirmDelete.purge)}
           busy={busy === confirmDelete.id}
+        />
+      )}
+
+      {settingsFor && (
+        <SettingsDrawer
+          id={settingsFor}
+          onClose={() => setSettingsFor("")}
+          onError={setErr}
         />
       )}
     </div>
@@ -676,4 +694,241 @@ function ReleaseDetails({
       )}
     </div>
   );
+}
+
+// -----------------------------------------------------------------------------
+// SettingsDrawer：schema-driven 表单，供 Installed tab 编辑 plugin.settings
+// -----------------------------------------------------------------------------
+
+function SettingsDrawer({
+  id,
+  onClose,
+  onError,
+}: {
+  id: string;
+  onClose: () => void;
+  onError: (e: string) => void;
+}) {
+  const [vm, setVM] = useState<PluginSettingsVM | null>(null);
+  const [values, setValues] = useState<Record<string, unknown>>({});
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string>("");
+
+  useEffect(() => {
+    App.GetPluginSchema(id)
+      .then((row) => {
+        setVM(row);
+        setValues(flattenSettings(row.settings));
+        setDirty(false);
+      })
+      .catch((e) => onError(String(e)));
+  }, [id, onError]);
+
+  const setValue = useCallback((path: string, next: unknown) => {
+    setValues((prev) => ({ ...prev, [path]: next }));
+    setDirty(true);
+  }, []);
+
+  const save = useCallback(() => {
+    if (!vm) return;
+    setBusy(true);
+    setNotice("");
+    const patch = unflattenSettings(values);
+    App.SetPluginSettings(id, patch)
+      .then((row) => {
+        setVM(row);
+        setValues(flattenSettings(row.settings));
+        setDirty(false);
+        setNotice("Saved.");
+      })
+      .catch((e) => onError(String(e)))
+      .finally(() => setBusy(false));
+  }, [id, values, vm, onError]);
+
+  return (
+    <div className="dk-modal" onClick={onClose}>
+      <div
+        className="dk-modal-inner pl-settings-drawer"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="pl-settings-hd">
+          <h3>Settings — {id}</h3>
+          <button className="secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        {!vm && <p style={{ color: "#888" }}>Loading…</p>}
+        {vm && !vm.has_schema && (
+          <p style={{ color: "#a88" }}>
+            This plugin does not declare <code>settingsSchema</code>. Use
+            the CLI (<code>mow plugin config {id}</code>) to edit raw
+            settings.
+          </p>
+        )}
+        {vm && vm.has_schema && (
+          <>
+            {(vm.fields ?? []).map((f) => (
+              <SettingsInput
+                key={f.path}
+                field={f}
+                value={values[f.path]}
+                onChange={(v) => setValue(f.path, v)}
+              />
+            ))}
+            {notice && <div className="pl-settings-notice">{notice}</div>}
+            <div className="dk-modal-actions">
+              <button className="secondary" onClick={onClose} disabled={busy}>
+                Cancel
+              </button>
+              <button onClick={save} disabled={busy || !dirty}>
+                {busy ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SettingsInput({
+  field,
+  value,
+  onChange,
+}: {
+  field: PluginSettingsField;
+  value: unknown;
+  onChange: (next: unknown) => void;
+}) {
+  // 缩进：object 分组（type=object）作为标题渲染，不显示输入控件。
+  if (field.type === "object") {
+    return (
+      <div
+        className="pl-settings-group"
+        style={{ marginLeft: field.depth * 16 }}
+      >
+        <b>{field.title || field.path}</b>
+        {field.description && (
+          <span className="pl-settings-desc"> · {field.description}</span>
+        )}
+      </div>
+    );
+  }
+  const asString = value == null ? "" : String(value);
+  const label = (
+    <>
+      <span className="pl-settings-label">{field.title || field.path}</span>
+      {field.required && <span className="pl-settings-badge">required</span>}
+      {field.secret && <span className="pl-settings-badge pl-secret">secret</span>}
+      {field.type && (
+        <span className="pl-settings-type">{field.type}</span>
+      )}
+    </>
+  );
+  const style = { marginLeft: field.depth * 16 };
+  if (field.enum && field.enum.length > 0) {
+    return (
+      <label className="pl-settings-row" style={style}>
+        <div className="pl-settings-labels">{label}</div>
+        <select
+          value={asString}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="">— unset —</option>
+          {field.enum.map((o) => (
+            <option key={String(o)} value={String(o)}>
+              {String(o)}
+            </option>
+          ))}
+        </select>
+        {field.description && (
+          <span className="pl-settings-desc">{field.description}</span>
+        )}
+      </label>
+    );
+  }
+  if (field.type === "boolean") {
+    return (
+      <label className="pl-settings-row" style={style}>
+        <div className="pl-settings-labels">{label}</div>
+        <input
+          type="checkbox"
+          checked={value === true}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        {field.description && (
+          <span className="pl-settings-desc">{field.description}</span>
+        )}
+      </label>
+    );
+  }
+  const numeric = field.type === "integer" || field.type === "number";
+  return (
+    <label className="pl-settings-row" style={style}>
+      <div className="pl-settings-labels">{label}</div>
+      <input
+        type={field.secret ? "password" : numeric ? "number" : "text"}
+        value={asString}
+        placeholder={
+          field.default !== undefined ? `default: ${String(field.default)}` : ""
+        }
+        onChange={(e) => {
+          const v = e.target.value;
+          if (numeric && v !== "") {
+            const num = Number(v);
+            onChange(Number.isNaN(num) ? v : num);
+          } else {
+            onChange(v);
+          }
+        }}
+      />
+      {field.description && (
+        <span className="pl-settings-desc">{field.description}</span>
+      )}
+    </label>
+  );
+}
+
+// flattenSettings：把嵌套 object 展平成 "a.b.c" 键，仅展开 object。
+// 数组 / 标量作为叶子（值保持原样，供表单一次性编辑）。
+function flattenSettings(v: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const walk = (prefix: string, node: unknown) => {
+    if (node && typeof node === "object" && !Array.isArray(node)) {
+      for (const [k, val] of Object.entries(node as Record<string, unknown>)) {
+        const path = prefix ? `${prefix}.${k}` : k;
+        if (val && typeof val === "object" && !Array.isArray(val)) {
+          walk(path, val);
+        } else {
+          out[path] = val;
+        }
+      }
+    }
+  };
+  walk("", v);
+  return out;
+}
+
+// unflattenSettings：反向操作，把 "a.b.c" 键还原为嵌套 object；数组保留原始形态。
+function unflattenSettings(map: Record<string, unknown>): unknown {
+  const root: Record<string, unknown> = {};
+  for (const [path, val] of Object.entries(map)) {
+    if (val === "" || val === undefined) continue;
+    const parts = path.split(".");
+    let cur: Record<string, unknown> = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const p = parts[i];
+      const next = cur[p];
+      if (next && typeof next === "object" && !Array.isArray(next)) {
+        cur = next as Record<string, unknown>;
+      } else {
+        const created: Record<string, unknown> = {};
+        cur[p] = created;
+        cur = created;
+      }
+    }
+    cur[parts[parts.length - 1]] = val;
+  }
+  return root;
 }

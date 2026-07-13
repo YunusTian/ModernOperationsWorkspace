@@ -851,3 +851,23 @@ body,
 .pl-market-details-hd select { background: #1e1e1e; color: #ddd; border: 1px solid #444; padding: 4px 8px; border-radius: 3px; }
 .pl-market-notes { background: #0e0e0e; color: #ddd; padding: 8px 10px; border-radius: 4px; font-family: "Menlo", "Consolas", monospace; font-size: 12px; white-space: pre-wrap; margin: 0 0 10px 0; }
 
+/* v0.5.2 P1 —— Schema-driven settings drawer */
+.pl-settings-drawer { min-width: 520px; max-width: 720px; max-height: 82vh; overflow-y: auto; }
+.pl-settings-hd { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.pl-settings-hd h3 { margin: 0; }
+.pl-settings-group { padding: 6px 0 2px; border-top: 1px solid #333; margin-top: 6px; color: #ccc; font-size: 12px; }
+.pl-settings-group:first-of-type { border-top: 0; margin-top: 0; }
+.pl-settings-row { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.pl-settings-labels { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #ddd; }
+.pl-settings-label { font-weight: 500; }
+.pl-settings-type { color: #888; font-size: 11px; font-family: "Menlo", "Consolas", monospace; }
+.pl-settings-badge { padding: 1px 6px; border-radius: 8px; background: #333; color: #ddd; font-size: 10px; text-transform: uppercase; }
+.pl-settings-badge.pl-secret { background: #4a2a20; color: #f6c8b3; }
+.pl-settings-row input[type="text"],
+.pl-settings-row input[type="number"],
+.pl-settings-row input[type="password"],
+.pl-settings-row select { background: #1e1e1e; color: #ddd; border: 1px solid #444; padding: 5px 8px; border-radius: 3px; font-size: 12px; }
+.pl-settings-row input[type="checkbox"] { align-self: flex-start; }
+.pl-settings-desc { color: #999; font-size: 11px; }
+.pl-settings-notice { background: #1f3a1f; color: #b6e2b6; border: 1px solid #315a31; padding: 6px 10px; border-radius: 4px; margin-top: 10px; font-size: 12px; }
+

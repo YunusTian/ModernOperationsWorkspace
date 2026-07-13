@@ -31,13 +31,31 @@
     "properties": {
       "providers": {
         "type": "array",
+        "description": "Provider list; each entry is one addressable backend (mock / openai / openai-compatible).",
         "items": {
           "type": "object",
           "required": ["kind"],
+          "additionalProperties": false,
           "properties": {
-            "name": {"type": "string"},
-            "kind": {"type": "string", "enum": ["mock", "openai", "openai-compatible"]},
-            "options": {"type": "object"}
+            "name":    {"type": "string",  "description": "Display name (defaults to kind if empty)"},
+            "kind":    {"type": "string",  "enum": ["mock", "openai", "openai-compatible"], "description": "Provider implementation"},
+            "options": {
+              "type": "object",
+              "description": "Provider-specific options; keys depend on kind.",
+              "additionalProperties": false,
+              "properties": {
+                "base_url":         {"type": "string",  "format": "url",  "description": "HTTP endpoint (openai-compatible)"},
+                "api_key":          {"type": "string",  "secret": true,   "description": "Direct API key. Prefer api_key_env to keep secrets out of config files."},
+                "api_key_env":      {"type": "string",  "description": "Environment variable holding the API key (recommended)."},
+                "default_model":    {"type": "string",  "description": "Default model name"},
+                "models":           {"type": "array",   "items": {"type": "string"}, "description": "Allowed model whitelist"},
+                "headers":          {"type": "object",  "additionalProperties": true, "description": "Extra HTTP headers"},
+                "timeout_seconds":  {"type": "integer", "minimum": 1, "maximum": 3600, "default": 60},
+                "retry_max_attempts":    {"type": "integer", "minimum": 0, "maximum": 10,   "default": 2},
+                "retry_base_backoff_ms": {"type": "integer", "minimum": 0, "maximum": 60000, "default": 200},
+                "retry_max_backoff_ms":  {"type": "integer", "minimum": 0, "maximum": 60000, "default": 2000}
+              }
+            }
           }
         }
       }
