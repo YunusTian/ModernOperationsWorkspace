@@ -122,14 +122,15 @@ CLI 生命周期与本地 Catalog 已全部落地；Desktop 插件管理页含 I
 - ✅ 官方 Catalog 生成：`scripts/build-catalog.go` + release workflow 新增 `catalog` job；`config.Default()` 预置官方源
 - ✅ Release Smoke 双阶段：`plugin validate` + `plugin catalog refresh → search → install → uninstall`（三平台待远端 CI 一次）
 
-### v0.5.2 — Schema 驱动的配置 UI + PVE 参考实现（闭环验证）🚧 进行中
+### v0.5.2 — Schema 驱动的配置 UI + PVE 参考实现（闭环验证）✅ 已实现（Release Smoke 待远端 CI）
 
-三条主线均已交付；剩余任务是 CI 兼容矩阵接通 & 完整验收清单。
+三条主线 + 6 条门槛全部交付；验收清单已归档，等下一次 `v0.5.2` tag 触发远端三平台 smoke。详见 [v0.5.2 验收清单](./v0.5.2-acceptance-checklist.md) 与 [Plugin System §9](./plugin-system.md#9-数据与凭据生命周期v052)。
 
 - ✅ Manifest `settingsSchema` 驱动 CLI 交互式配置与 Desktop 表单（[core/plugin/settings](../core/plugin/settings/) + [apps/cli/plugin_config.go](../apps/cli/plugin_config.go) + [PluginsPage.tsx SettingsDrawer](../apps/desktop/frontend/src/pages/PluginsPage.tsx)）
 - ✅ Secret 字段隔离存储、脱敏输入、日志与配置文件均无明文（[core/plugin/settings/secret_store.go](../core/plugin/settings/secret_store.go)；secret 落 `<DataDir>/plugin-secrets/<id>.json` 0600；`Init` 前 `Merge` 回来）
 - ✅ **PVE 只读参考插件**：Cluster / Node / QEMU / LXC 只读列表 + start/stop/reboot（[plugins/pve](../plugins/pve/)，fake API httptest 全覆盖）
-- 🚧 插件兼容矩阵进入 CI（SSH / Docker / AI / PVE 四款并行 build+test 已接入 [ci.yml](../.github/workflows/ci.yml) 与 [release.yml](../.github/workflows/release.yml)）
+- ✅ 插件兼容矩阵进入 CI（SSH / Docker / AI / PVE 四款并行 build+test 已接入 [ci.yml](../.github/workflows/ci.yml) 与 [release.yml](../.github/workflows/release.yml)）
+- ✅ 配置、凭据和插件数据有明确生命周期文档（[plugin-system.md §9](./plugin-system.md#9-数据与凭据生命周期v052)）
 - ⏸ 复杂 PVE 创建向导、存储迁移、Dangerous 删除延后到 v0.7
 
 ## v0.6 — Workflow 2.0

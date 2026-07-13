@@ -209,7 +209,7 @@ PVE 参考插件（只读闭环）：
 - [x] Manifest `settingsSchema` 能在 CLI 与 Desktop 端渲染为一致表单（[apps/cli/plugin_config.go](../apps/cli/plugin_config.go) + [PluginsPage SettingsDrawer](../apps/desktop/frontend/src/pages/PluginsPage.tsx)）
 - [x] Secret 字段在配置文件和日志中均不出现明文（[secret_store.go](../core/plugin/settings/secret_store.go)：`<DataDir>/plugin-secrets/<id>.json` 0600；`Manager.Enable` / 审计链路均不 log settings）
 - [x] 插件兼容矩阵进入 CI（[ci.yml](../.github/workflows/ci.yml) 的 build / vet / unit-test / gosec 循环均已扩展到 `plugins/pve`；[release.yml](../.github/workflows/release.yml) 增加 `Build PVE Plugin` step 与 `-plugins ssh,docker,ai,pve`）
-- [ ] 配置、凭据和插件数据有明确生命周期文档（待 `docs/v0.5.2-acceptance-checklist.md` 汇总）
+- [x] 配置、凭据和插件数据有明确生命周期文档（[plugin-system.md §9](./plugin-system.md#9-数据与凭据生命周期v052) + [v0.5.2 验收清单](./v0.5.2-acceptance-checklist.md)）
 
 ### 4.5 v0.5.3：插件开发者体验（v0.5.2 后追加，可延后到 v0.6 前）
 

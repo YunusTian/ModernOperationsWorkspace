@@ -422,3 +422,58 @@ v0.5.1 把 v0.5.0 冻结的 Manifest 与包格式，装配成完整的"从 Catal
 | `PLUGIN_ARCHIVE_UNSAFE` | safeJoin 判定路径穿越 / symlink | `entry` |
 
 这些 Code 与 v0.5.0 契约同级：CHANGELOG 会追踪，CLI / Desktop 按 Code 分支渲染。
+
+## 9. 数据与凭据生命周期（v0.5.2）
+
+v0.5.2 把用户面的三条主线（`settingsSchema` 驱动的 UI、Secret sidecar、PVE 参考插件）合流，需要一份**单一事实源**说明「配置、凭据、插件数据在磁盘的哪里、什么时候创建、什么时候清理」。凡是与合规或运维相关的问题，先查本节。
+
+### 9.1 目录布局
+
+```
+<DataDir>/                          # config.App.DataDir，默认 ~/.mow
+├── config.json                     # 主配置；plugins.<id>.settings 只含"非 secret"字段
+├── plugin-data/<id>/               # 插件自持久化目录（Manager 只透传 req.DataDir，内部结构由插件决定）
+├── plugin-secrets/<id>.json        # v0.5.2 新增：secret sidecar（0o600，dir 0o700）
+├── catalog-cache/<hash>.json       # v0.5.1：catalog 客户端离线缓存
+└── keys/master.key                 # ConnectionManager 主密钥（0o600）
+
+<PluginsDir>/                        # config.App.PluginsDir，默认 <DataDir>/plugins
+├── <id>/plugin.json + bin/…        # 已安装插件包
+└── .state/<id>.json                # Lifecycle 记录 enabled + installed_at（0o600，dir 0o700）
+```
+
+### 9.2 生命周期矩阵
+
+| 事件 | `config.json` | `plugin-data/<id>/` | `plugin-secrets/<id>.json` | `plugins/<id>/` | `.state/<id>.json` |
+| --- | --- | --- | --- | --- | --- |
+| **install**（本地包 / catalog） | 若首次安装写入 `plugins.<id>={enabled:false}` | 首次 Enable 时由插件按需创建 | 不涉及（用户随后 set 才产生） | Lifecycle 原子创建 | 写 `{enabled:false, installed_at}` |
+| **enable / disable** | 更新 `plugins.<id>.enabled` | 不动 | 不动 | 不动 | 更新 `enabled` |
+| **`plugin config set` / Desktop 保存** | 写入非 secret 字段（`settings.Split` 后的 clean 部分） | 不动 | 写入 secret 字段（`settings.Split` 后的 secrets 部分）；空 object 自动 `Delete` | 不动 | 不动 |
+| **Init 前合并** | 只读 | 只读（供插件） | 只读；`settings.Merge(base, secrets)` 结果作为 `sdk.InitRequest.Settings` 交给插件 | — | — |
+| **update** | 保留（旧非 secret 沿用） | 保留（插件负责迁移） | 保留（sidecar 结构由 schema 稳定性保证） | 备份 → 原子替换；失败 `rollbackUpdate` | 保留 `enabled`，`installed_at` 刷新 |
+| **uninstall（默认）** | 保留 `plugins.<id>` 条目 | 保留 | 保留 | 删除 | 保留 |
+| **uninstall `--purge`** | 保留 `plugins.<id>` 条目\* | 保留\* | **删除** | 删除 | **删除** |
+
+\* `--purge` 仅清插件相关的 sidecar / 包 / .state；主 `config.json` 里的 `plugins.<id>` 条目由用户显式移除以避免误伤"仅想重装"的场景。
+
+### 9.3 权限与原子性
+
+- 所有目录以 `0o700` 创建；所有 secret / state 文件以 `0o600` 落盘
+- Secret 写入采用**临时文件 + `os.Rename`**：中断只会留下 `.<id>.*.tmp`，不会出现半写文件（见 [secret_store.go](../core/plugin/settings/secret_store.go)）
+- Catalog 缓存同样走 rename 原子替换（[catalog.Client](../core/plugin/catalog/catalog.go)）
+- Lifecycle 的 install / update 也采用同盘 rename 与备份回退（[core/plugin/lifecycle.go](../core/plugin/lifecycle.go)）
+
+### 9.4 Secret 卫生承诺
+
+- **磁盘**：`config.json` 中永远看不到 secret 字段的键或值；secret 只驻留 `plugin-secrets/<id>.json`
+- **网络**：secret 只在 Init 时通过 gRPC `google.protobuf.Struct` 一次性交给插件子进程；插件端接到后可缓存在内存，不建议再写盘（例如 PVE 的 `endpoint.tokenSecret` 就是 unexported 字段）
+- **日志**：`core/logger` 是纯 slog 薄封装，无字段级 hook；`Manager.Enable` 仅记录 `id + err`；`LoggerAudit` 只记 `params_size`（长度）
+- **审计**：`core/command.RedactParams` 与 `settings.Redact` 是两条独立管线——前者作用于 `CommandSpec.InputSchema.x-mow-sensitive`（v0.4 起），后者作用于 `Manifest.settingsSchema.secret`（v0.5.2 起）；两者互不干扰
+- **UI 回写保护**：`Desktop.SetPluginSettings` 的 `mergeSecrets` 把 patch 中的 `"***"` 视为"保持不变"，避免脱敏值意外覆盖真实 secret
+
+### 9.5 手动运维参考
+
+- 备份：拷贝整个 `<DataDir>` 目录即可恢复配置 + secret + catalog cache + `plugin-data`
+- 迁移：先关闭所有 mow 进程（避免 rename 冲突），再整包 rsync；跨主机迁移建议只带 `config.json` + `plugin-secrets/`，`plugin-data/` 视具体插件语义而定（例如 SSH 的 known_hosts 可迁，Docker credential 不建议迁）
+- 清理：`rm -rf <DataDir>/plugin-secrets/<id>.json` 等价于"该插件的凭据彻底重置"；下一次 Init 时 `pluginInitRequest` 会跳过 merge，`req.Settings` 只含非 secret 字段
+- 故障排查：`mow plugin config <id> --json` 会输出脱敏后的完整 view（含 sidecar merge），可用于确认部署差异；`--json` 输出不含明文 secret，可以安全贴到工单

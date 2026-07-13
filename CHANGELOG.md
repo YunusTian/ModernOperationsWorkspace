@@ -9,6 +9,7 @@
 
 ### v0.5.2 P1 — Schema 驱动的配置 UI + Secret sidecar + PVE 参考插件
 
+- **文档收尾**：新增 [v0.5.2 验收清单](./docs/v0.5.2-acceptance-checklist.md)（10 节，覆盖 Schema 编译器 / SecretStore / CLI / Desktop / PVE / CI+Release / 数据生命周期 / 安全承诺 / 发布门槛 / 延后项）；[plugin-system.md](./docs/plugin-system.md) 新增 §9「数据与凭据生命周期（v0.5.2）」，含目录布局、生命周期矩阵（install/enable/set/update/uninstall/purge 五列）、权限与原子性、Secret 卫生承诺、手动运维参考；[roadmap.md v0.5.2](./docs/roadmap.md) 从 🚧 改为 ✅（Release Smoke 待远端 CI）；[README.md](./README.md) roadmap 表同步；[development-plan-v0.5-v1.0.md §4.4.1](./docs/development-plan-v0.5-v1.0.md#441-v052-发布门槛) 六条门槛全部勾选。
 - **Manifest `settingsSchema` 编译器**：新增 [core/plugin/settings](./core/plugin/settings/schema.go)，覆盖 JSON Schema 子集 + 自定义 `secret` 关键字（`Compile / Validate / ApplyDefaults / Redact / Fields / SetPath / GetPath / SecretPaths`）；不引入重量级依赖。
 - **Secret 隔离存储**：[secret_store.go](./core/plugin/settings/secret_store.go) 新增 `SecretStore` sidecar（`<DataDir>/plugin-secrets/<id>.json`，dir 0o700 / file 0o600，原子 rename）+ `Split(schema, raw)` / `Merge(base, secrets)`；CLI/Desktop 写回时把 secret 分流到 sidecar，`config.json` 保持无明文；`pluginInitRequest`（CLI）与 `buildInitRequest`（Desktop）在 Init 前合并 sidecar，插件端拿到完整 `req.Settings`；`uninstall --purge` 同步删除 sidecar。
 - **CLI `mow plugin config`**：新增 `list / get / set / unset / schema [--json]` 子命令族，全部按 schema 校验、脱敏后展示；[apps/cli/plugin_config.go](./apps/cli/plugin_config.go) + 单测覆盖 secret 隔离 & list 不泄漏。
