@@ -34,6 +34,8 @@ func newPluginCmd(holder *appHolder) *cobra.Command {
 		newPluginToggleCmd(holder, true),
 		newPluginToggleCmd(holder, false),
 		newPluginDoctorCmd(holder),
+		newPluginSearchCmd(holder),
+		newPluginCatalogCmd(holder),
 	)
 	return cmd
 }

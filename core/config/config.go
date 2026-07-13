@@ -65,6 +65,28 @@ type AppConfig struct {
 
 	// PluginsDir 是官方 / 第三方 Plugin 可执行文件所在目录。
 	PluginsDir string `json:"plugins_dir"`
+
+	// Catalog 是插件 Catalog 客户端的配置（v0.5.1 引入的雏形）。
+	// 空 struct 时会走 Default() 里的官方 Catalog + 用户 CacheDir。
+	Catalog CatalogConfig `json:"catalog"`
+}
+
+// CatalogConfig 描述插件 Catalog 的来源集合与缓存目录。
+//
+// 语义与 core/plugin/catalog.Options 对齐：
+//   - Sources 顺序即拉取顺序，允许官方源与私有源并存
+//   - CacheDir 用于离线回退（相对路径基于 AppConfig.DataDir）
+//   - 若 Sources 为空 → catalog 功能保持可用但没有任何源，CLI 会提示配置
+type CatalogConfig struct {
+	Sources  []CatalogSource `json:"sources,omitempty"`
+	CacheDir string          `json:"cache_dir,omitempty"`
+}
+
+// CatalogSource 与 core/plugin/catalog.Source 对齐（避免相互 import）。
+type CatalogSource struct {
+	Name    string `json:"name"`
+	URL     string `json:"url"`
+	Trusted bool   `json:"trusted,omitempty"`
 }
 
 // LoggerConfig 与 core/logger.Options 对齐。
@@ -89,6 +111,9 @@ func Default() Config {
 		App: AppConfig{
 			DataDir:    dataDir,
 			PluginsDir: filepath.Join(dataDir, "plugins"),
+			Catalog: CatalogConfig{
+				CacheDir: filepath.Join(dataDir, "catalog-cache"),
+			},
 		},
 		Logger: LoggerConfig{
 			Level:  "info",
