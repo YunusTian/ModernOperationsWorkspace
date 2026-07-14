@@ -7,7 +7,15 @@
 
 ## [Unreleased]
 
-（无未发布变更；下一次条目将写在这里，随后打 tag 时移入正式章节。）
+### 前端边缘测试补齐（PluginsPage + SettingsDrawer）
+
+- **背景**：v0.5.2 落地 Plugins Marketplace + Schema-driven SettingsDrawer 时，前端只有 [AIPage.test.tsx](./apps/desktop/frontend/src/pages/AIPage.test.tsx) 一个用例；`***` 掩码回传、离线降级、install 失败横幅等 UI 边界只靠人工验收。
+- **新增**：[apps/desktop/frontend/src/pages/PluginsPage.test.tsx](./apps/desktop/frontend/src/pages/PluginsPage.test.tsx)，共 9 个用例，纯 vitest + `@testing-library/react`（jsdom），不依赖 Wails 运行时（`../bindings` 走 `vi.mock`）：
+    - Installed tab：`healthy / incompatible / broken` HealthBadge 渲染；`broken` 插件的 Enable checkbox 禁用；`ListPlugins` 抛错 → 顶层错误横幅 + 表格空态提示；Uninstall 弹窗勾选 purge → `UninstallPlugin(id, true)` + 行从表格中消失
+    - Marketplace tab：`RefreshCatalog` 返回 `from_cache=true` → "N entries" 提示行；`InstallPluginFromCatalog` 抛错 → 顶层错误横幅、不重新调用 `ListPlugins`；已安装同版本 → `Installed` pill、不出现 Install / Update 按钮
+    - SettingsDrawer：`GetPluginSchema` pending → `Loading…` 占位；`has_schema=false` → 提示文案 + 不渲染 Save 按钮；**secret 保留语义**（回归主用例）—— 用户仅改普通字段、`api_key` 与 `nested.token` 保留 `"***"` 占位 → `SetPluginSettings` payload 里 secret 仍为 `"***"`，不会覆盖 sidecar 明文
+- **CI 覆盖**：[.github/workflows/ci.yml](./.github/workflows/ci.yml#L131) 的 `frontend` job 已跑 `npm test`（vitest run）+ `npm run build`（tsc + vite），本文件自动纳入门禁；本地 `npm run test` 14/14 通过；`npx tsc -b` 通过。
+- **不涉及**：Go / Wails 后端；SDK / Plugin Protocol / Manifest schema；已发布产物；本轮不改动 v0.5.3 tag 的范围。
 
 ## [v0.5.3] - 2026-07-14
 
