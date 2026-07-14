@@ -32,9 +32,13 @@ type httpClient struct {
 }
 
 func newHTTPClient(ep *endpoint) *httpClient {
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: ep.InsecureTLS}, //nolint:gosec // opt-in for self-signed labs
+	// InsecureSkipVerify 是用户显式为自建实验环境（自签证书）开启的选项，
+	// 默认关闭；MinVersion 固定为 TLS 1.2 以避免弱协议。
+	tlsCfg := &tls.Config{ //nolint:gosec // G402: InsecureSkipVerify 由用户显式配置
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: ep.InsecureTLS, // #nosec G402 -- opt-in for self-signed labs
 	}
+	tr := &http.Transport{TLSClientConfig: tlsCfg}
 	return &httpClient{
 		base: &http.Client{Timeout: ep.Timeout, Transport: tr},
 		ep:   ep,
