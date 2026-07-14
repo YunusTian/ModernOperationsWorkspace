@@ -182,6 +182,12 @@ jobs:
           (cd plugins/pve && go test -count=1 ./...)
           (cd sdk && go test -count=1 ./...)
 
+      - name: PowerShell smoke lib regression (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        # 覆盖 release-smoke.ps1 的 catalog 平台过滤逻辑；离线用例，不依赖 release artifact。
+        run: ./scripts/release-smoke-lib.tests.ps1
+
       - name: Download prebuilt SSH plugin
         uses: actions/download-artifact@v4
         with:

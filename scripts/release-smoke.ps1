@@ -4,6 +4,7 @@ param(
     [string]$Arch = "amd64"
 )
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "release-smoke-lib.ps1")
 $root = Join-Path ([System.IO.Path]::GetTempPath()) ("mow-smoke-" + [guid]::NewGuid())
 try {
     $install = Join-Path $root "install"
@@ -55,18 +56,18 @@ try {
         Write-Output "catalog.json not present; skipping catalog smoke"
         return
     }
-    # 派生 catalog：把 URL 全部改写为 file:// 指向本地 artifact 目录
+    # 派生 catalog：把 URL 改写为 file:// 指向本地 artifact 目录。
+    #
+    # 注意（Windows 平台过滤）：install-smoke 矩阵只会下载"当前 target/arch"的 tar.gz
+    # （见 release.yml 的 `binaries-<target>-<arch>` artifact），因此 catalog 里其它
+    # 平台的产物在本机上并不存在。历史实现调用 `Resolve-Path`，遇到不存在的文件
+    # 直接抛错，导致 Windows smoke 在解析 linux/darwin 平台条目时失败。
+    #
+    # 修复：按 target/arch 过滤 platforms[]，只保留本机可解析的条目；对齐 Bash
+    # 版本"未访问的 URL 无需存在"的语义。实现在 release-smoke-lib.ps1
+    # 的 ConvertTo-LocalCatalog（便于 Pester 覆盖）。
     $catObj = Get-Content -LiteralPath $catJson -Raw | ConvertFrom-Json
-    foreach ($e in $catObj.entries) {
-        foreach ($r in $e.versions) {
-            foreach ($p in $r.platforms) {
-                $fname = ([Uri]$p.url).Segments[-1]
-                $local = (Resolve-Path -LiteralPath (Join-Path $ArtifactDir $fname)).Path
-                # file:///C:/... 形式，Windows 需要 3 个斜杠且盘符前有斜杠
-                $p.url = "file:///" + ($local -replace "\\", "/")
-            }
-        }
-    }
+    $catObj = ConvertTo-LocalCatalog -Catalog $catObj -ArtifactDir $ArtifactDir -Target $Target -Arch $Arch
     $derivedCat = Join-Path $root "catalog.json"
     $catObj | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $derivedCat -Encoding UTF8
 
