@@ -7,6 +7,18 @@
 
 ## [Unreleased]
 
+### v0.5.3 — Release Smoke Patch（Windows catalog 平台过滤）
+
+v0.5.2 的 patch 版本，**不引入任何新特性**；SDK / Manifest / Plugin Protocol 完全不变，已发布的 v0.5.2 catalog 与二进制无需重打。[VERSION](./VERSION) 由 `0.5.2` 上调为 `0.5.3`。
+
+- **修复**：Windows install-smoke 只下载当前 target/arch 的 tar.gz，历史 [release-smoke.ps1](./scripts/release-smoke.ps1) 在 catalog Phase 2 对 `entries[].versions[].platforms[]` 里其它平台的条目仍调用 `Resolve-Path`，遇到磁盘上不存在的产物直接抛错，导致 Windows Phase 2 catalog install smoke 从未成功过。Bash 版本用 `os.path.abspath` 侥幸通过，两端语义不一致。
+- **实现**：新增 [scripts/release-smoke-lib.ps1](./scripts/release-smoke-lib.ps1)，导出 `ConvertTo-LocalCatalog -Catalog -ArtifactDir -Target -Arch`：按 target/arch 过滤 `platforms[]`，磁盘上缺失的产物跳过，匹配到的条目才改写为 `file:///` URL；对齐 [release-smoke.sh](./scripts/release-smoke.sh) 的宽松语义。[release-smoke.ps1](./scripts/release-smoke.ps1) 在 Phase 2 改为调用该函数，其余流程保持不变。
+- **回归**：新增 [scripts/release-smoke-lib.tests.ps1](./scripts/release-smoke-lib.tests.ps1)，不依赖 Pester，覆盖两种场景：
+    - S1（回归主用例）：catalog 含 linux/windows/darwin 三平台，本地目录只有 windows/amd64 产物 → 只保留 windows/amd64、URL 改为 `file:///`、checksum 原样保留。
+    - S2（防御用例）：当前平台产物缺失 → `platforms[]` 被清空而不抛出 `Resolve-Path` 错误。
+- **CI**：[ci.yml](./.github/workflows/ci.yml) 的 `test (windows-latest)` job 追加 `PowerShell smoke lib regression` 步骤，把上述回归纳入主干门禁，作为打 `v0.5.3` tag 前的兜底检查。
+- **文档**：新增 [v0.5.3 验收清单](./docs/v0.5.3-acceptance-checklist.md)；[development-plan-v0.5-v1.0.md §4.5](./docs/development-plan-v0.5-v1.0.md#45-v053release-smoke-patchwindows-catalog-平台过滤) 把原 §4.5「插件开发者体验」下移到 [§4.5.1 v0.5.4](./docs/development-plan-v0.5-v1.0.md#451-v054插件开发者体验v053-后追加可延后到-v06-前)；[roadmap.md v0.5.3](./docs/roadmap.md#v053--release-smoke-patchwindows-catalog-平台过滤-已实现三平台-release-smoke-待-v053-tag-触发) 记录本次修复；[v0.5.2 验收清单](./docs/v0.5.2-acceptance-checklist.md) 附加 patch 引用（不改动其范围与勾选状态）。
+
 ### v0.5.2 P1 — Schema 驱动的配置 UI + Secret sidecar + PVE 参考插件
 
 - **文档收尾**：新增 [v0.5.2 验收清单](./docs/v0.5.2-acceptance-checklist.md)（10 节，覆盖 Schema 编译器 / SecretStore / CLI / Desktop / PVE / CI+Release / 数据生命周期 / 安全承诺 / 发布门槛 / 延后项）；[plugin-system.md](./docs/plugin-system.md) 新增 §9「数据与凭据生命周期（v0.5.2）」，含目录布局、生命周期矩阵（install/enable/set/update/uninstall/purge 五列）、权限与原子性、Secret 卫生承诺、手动运维参考；[roadmap.md v0.5.2](./docs/roadmap.md) 从 🚧 改为 ✅（Release Smoke 待远端 CI）；[README.md](./README.md) roadmap 表同步；[development-plan-v0.5-v1.0.md §4.4.1](./docs/development-plan-v0.5-v1.0.md#441-v052-发布门槛) 六条门槛全部勾选。
@@ -17,7 +29,6 @@
 - **AI 插件 schema 加固**：[plugins/ai/plugin.json](./plugins/ai/plugin.json) 补齐 `providers[].options.*` 的完整 schema，包括 `api_key { secret: true }`、`timeout_seconds` / `retry_*` 默认值与范围。
 - **PVE 只读参考插件**：新增 [plugins/pve](./plugins/pve/) 独立 module（`replace ../../sdk`），涵盖 `cluster.status / node.list / vm.list / vm.status / lxc.list / vm.{start,stop,reboot} / lxc.{start,stop,reboot}` 共 11 条命令；HTTP client 采用 PVE API Token（`PVEAPIToken=<id>=<secret>`），支持 `insecure_tls` + 自定义 timeout；`settingsSchema.endpoints[].token_secret` 打上 `secret: true`，可选 `token_secret_env` 走环境变量；错误码 `PVE_UNAUTHORIZED / PVE_NOT_FOUND / PVE_UPSTREAM / PVE_UNREACHABLE / PVE_ENDPOINT_MISSING / PARAM_INVALID / ENCODE_FAILED / PVE_DECODE_FAILED / PVE_REQUEST_INVALID / PVE_BAD_REQUEST`；`commands_test.go` 起 `httptest.NewTLSServer` 覆盖成功路径 / 401 / 404 / 缺 token / 未知 endpoint / stop force=true 走 `/status/stop`、force=false 走 `/status/shutdown`；`manifest_test.go` 保证 Manifest 与运行时 Metadata / Commands 完全对齐。
 - **CI / Release 兼容矩阵接入**：[ci.yml](./.github/workflows/ci.yml) 的 build / vet / unit-test / gosec 循环全部扩展到 `plugins/pve`；[release.yml](./.github/workflows/release.yml) 新增 `Build PVE Plugin` step；[scripts/build-catalog.go](./scripts/build-catalog.go) 默认 `-plugins ssh,docker,ai,pve`；`release.yml` 传参同步；[scripts/release-smoke.{sh,ps1}](./scripts/release-smoke.sh) Phase 1 加入 `pve` 校验；[scripts/lint.sh](./scripts/lint.sh) / [lint.ps1](./scripts/lint.ps1) 加入 `plugins/pve`；`go.work` 加入 `./plugins/pve`。
-- **Release Smoke Windows catalog 修复**：Windows install-smoke 只下载当前 target/arch 的 tar.gz，历史实现对 catalog 里其它平台的条目仍然调用 `Resolve-Path`，遇到磁盘上不存在的产物直接抛错。抽出 [scripts/release-smoke-lib.ps1](./scripts/release-smoke-lib.ps1) 的 `ConvertTo-LocalCatalog`：按 target/arch 过滤 `versions[].platforms`，只保留本机存在的条目后再改写为 `file:///` URL（对齐 [release-smoke.sh](./scripts/release-smoke.sh) 的宽松语义）；新增离线回归 [release-smoke-lib.tests.ps1](./scripts/release-smoke-lib.tests.ps1) 覆盖"catalog 含多平台、当前目录只有本平台产物"与"当前平台产物缺失"两种场景；`ci.yml` test job 在 Windows runner 上执行该测试作为 pre-release gate。
 - **文档更新**：[roadmap.md v0.5.2](./docs/roadmap.md#v052--schema-驱动的配置-ui--pve-参考实现闭环验证-进行中) 三条主线打勾；[development-plan-v0.5-v1.0.md §4.4.1](./docs/development-plan-v0.5-v1.0.md#441-v052-发布门槛) 5/6 门槛勾选（余下"生命周期文档"待 v0.5.2 验收清单）。
 
 ### v0.5.1 P0–P3 — 生命周期完整链路 + 本地 Catalog + Desktop Marketplace + Release Catalog

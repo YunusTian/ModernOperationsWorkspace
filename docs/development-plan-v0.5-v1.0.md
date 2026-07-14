@@ -211,7 +211,19 @@ PVE 参考插件（只读闭环）：
 - [x] 插件兼容矩阵进入 CI（[ci.yml](../.github/workflows/ci.yml) 的 build / vet / unit-test / gosec 循环均已扩展到 `plugins/pve`；[release.yml](../.github/workflows/release.yml) 增加 `Build PVE Plugin` step 与 `-plugins ssh,docker,ai,pve`）
 - [x] 配置、凭据和插件数据有明确生命周期文档（[plugin-system.md §9](./plugin-system.md#9-数据与凭据生命周期v052) + [v0.5.2 验收清单](./v0.5.2-acceptance-checklist.md)）
 
-### 4.5 v0.5.3：插件开发者体验（v0.5.2 后追加，可延后到 v0.6 前）
+### 4.5 v0.5.3：Release Smoke Patch（Windows catalog 平台过滤）
+
+v0.5.2 的 patch 版本，不引入新特性。Windows install-smoke 在 catalog Phase 2 遍历 `entries[].versions[].platforms[]` 时对不存在的平台产物调用 `Resolve-Path` 硬失败，需要与 [release-smoke.sh](../scripts/release-smoke.sh) 语义对齐。
+
+- 抽出 [scripts/release-smoke-lib.ps1](../scripts/release-smoke-lib.ps1) 的 `ConvertTo-LocalCatalog`：按当前 target/arch 过滤 `platforms[]`，磁盘上缺失的产物直接跳过；匹配到的条目才改写为 `file:///`
+- [release-smoke.ps1](../scripts/release-smoke.ps1) 改为调用该函数，其余流程保持不变
+- 新增离线回归 [release-smoke-lib.tests.ps1](../scripts/release-smoke-lib.tests.ps1)（不依赖 Pester）
+- [ci.yml](../.github/workflows/ci.yml) 的 `test (windows-latest)` job 追加运行该回归，作为 pre-tag 门禁
+- 兼容性：SDK / Manifest / Plugin Protocol 无变化；已发布的 v0.5.2 catalog 与二进制无需重打
+
+对应验收清单：[v0.5.3 验收清单](./v0.5.3-acceptance-checklist.md)。
+
+### 4.5.1 v0.5.4：插件开发者体验（v0.5.3 后追加，可延后到 v0.6 前）
 
 - `mow plugin init` 脚手架
 - 官方示例插件模板

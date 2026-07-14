@@ -133,6 +133,15 @@ CLI 生命周期与本地 Catalog 已全部落地；Desktop 插件管理页含 I
 - ✅ 配置、凭据和插件数据有明确生命周期文档（[plugin-system.md §9](./plugin-system.md#9-数据与凭据生命周期v052)）
 - ⏸ 复杂 PVE 创建向导、存储迁移、Dangerous 删除延后到 v0.7
 
+### v0.5.3 — Release Smoke Patch（Windows catalog 平台过滤）✅ 已实现（三平台 Release Smoke 待 `v0.5.3` tag 触发）
+
+v0.5.2 的 patch 版本，不引入新特性。修复 Windows install-smoke 在 catalog Phase 2 中因 `Resolve-Path` 对其它平台产物硬失败的问题；SDK / Manifest / Plugin Protocol 无变化。详见 [v0.5.3 验收清单](./v0.5.3-acceptance-checklist.md)。
+
+- ✅ 抽出 [scripts/release-smoke-lib.ps1](../scripts/release-smoke-lib.ps1) 的 `ConvertTo-LocalCatalog`（按 target/arch 过滤 `platforms[]` 并跳过缺失产物，对齐 [release-smoke.sh](../scripts/release-smoke.sh) 语义）
+- ✅ 离线回归 [release-smoke-lib.tests.ps1](../scripts/release-smoke-lib.tests.ps1) 覆盖"多平台 catalog + 单平台产物"与"当前平台产物缺失"两种场景
+- ✅ 主干 CI 在 windows-latest 的 test job 中执行该回归作为 pre-tag 门禁
+- ⏸ 三平台 Release Smoke 全绿（等 `v0.5.3` tag 触发）
+
 ## v0.6 — Workflow 2.0
 
 - Workflow 版本化、子工作流、审批、Dry-run
