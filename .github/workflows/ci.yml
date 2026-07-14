@@ -62,6 +62,12 @@ jobs:
       - name: Lint all modules
         run: bash scripts/lint.sh
 
+      - name: Docs & version drift check
+        # 校验 VERSION / sdk-version / 前端 package.json / plugins/*/plugin.json 一致；
+        # CHANGELOG 有对应正式章节；README badge 与 roadmap 不得落后于 VERSION；
+        # 正式 tag 的验收清单不得仍写"等待该 tag"。见 scripts/check-docs.go 注释。
+        run: go run ./scripts/check-docs.go
+
   # ---------------------------------------------------------------------------
   # 先编译一次 ssh 插件，作为 e2e artifact，节省两平台各一次的 build 成本。
   # ---------------------------------------------------------------------------

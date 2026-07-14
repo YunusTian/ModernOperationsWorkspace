@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "docker",
   "name": "Docker",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "author": "mow",
   "license": "Apache-2.0",
   "homepage": "https://github.com/YunusTian/ModernOperationsWorkspace",

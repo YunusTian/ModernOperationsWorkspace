@@ -238,14 +238,14 @@ v0.5.2 的 patch 版本，不引入新特性。Windows install-smoke 在 catalog
 
 ### 4.6 v0.5 总体门槛（三子版本合计）
 
-以下门槛在 v0.5.2 发布时最终校验一次，等价于旧的"v0.5 发布门槛"：
+以下门槛等价于旧的"v0.5 发布门槛"，在 v0.5.2 tag 发布时最终校验一次，v0.5.3 patch 后覆盖 Windows install-smoke：
 
-- [ ] 至少一个插件能从 Catalog 安装、启用、升级、回退、卸载
-- [ ] PVE 参考插件不依赖源码仓库内的特殊路径
-- [ ] 第三方开发者仅依赖公开 SDK 和文档即可完成插件
-- [ ] 插件兼容矩阵进入 CI
-- [ ] Windows/Linux/macOS 安装路径一致
-- [ ] 配置、凭据和插件数据有明确生命周期
+- [x] 至少一个插件能从 Catalog 安装、启用、升级、回退、卸载（`mow plugin install|update|enable|disable|uninstall` + Desktop Marketplace；详见 [v0.5.1 §2–§5](./v0.5.1-acceptance-checklist.md)）
+- [x] PVE 参考插件不依赖源码仓库内的特殊路径（独立 module `plugins/pve/go.mod`，`replace ../../sdk`；详见 [v0.5.2 §5](./v0.5.2-acceptance-checklist.md)）
+- [x] 第三方开发者仅依赖公开 SDK 和文档即可完成插件（[plugin-system.md §6–§9](./plugin-system.md#6-plugin-manifestv050) 覆盖 Manifest / 兼容性 / Catalog / 生命周期）
+- [x] 插件兼容矩阵进入 CI（SSH / Docker / AI / PVE 四款并行 build+vet+test+gosec 已接入 [ci.yml](../.github/workflows/ci.yml) 与 [release.yml](../.github/workflows/release.yml)）
+- [x] Windows/Linux/macOS 安装路径一致（[release-smoke.sh](../scripts/release-smoke.sh) 与 [release-smoke.ps1](../scripts/release-smoke.ps1) 走同一 catalog Phase 2 流程；Windows 平台过滤缺陷由 [v0.5.3](./v0.5.3-acceptance-checklist.md) 修复）
+- [x] 配置、凭据和插件数据有明确生命周期（[plugin-system.md §9](./plugin-system.md#9-数据与凭据生命周期v052)）
 
 ## 5. v0.6 — Workflow 2.0
 
