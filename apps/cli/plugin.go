@@ -27,6 +27,9 @@ func newPluginCmd(holder *appHolder) *cobra.Command {
 		Short: "Inspect plugin packages (Manifest, checksum, entrypoint)",
 	}
 	cmd.AddCommand(
+		newPluginInitCmd(),
+		newPluginLintCmd(),
+		newPluginPackageCmd(),
 		newPluginValidateCmd(),
 		newPluginListCmd(holder),
 		newPluginInstallCmd(holder),
