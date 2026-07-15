@@ -13,7 +13,9 @@
 #
 # 说明：
 #   - CLI / SSH Plugin / Docker Plugin 用 CGO_ENABLED=0 纯静态编译，全平台矩阵都能出产物
-#   - Desktop（Wails）需要 CGO，交叉编译能力受限，非原生平台若失败则跳过打包
+#   - Desktop（Wails）需要 CGO 与平台原生 WebView / GTK，无法交叉编译；
+#     由独立的 build-desktop job 在 Windows / Linux / macOS runner 上原生构建，
+#     任何一个平台构建失败都会阻断 release（不再吞错跳过）。
 #   - Release 正文使用当前主版本的验收清单（v0.3.x → docs/v0.3-acceptance-checklist.md）
 
 name: release
@@ -169,30 +171,6 @@ jobs:
           rm -rf "${BIN}" "${PKG_DIR}"
           echo "PVE_PLUGIN_ARCHIVE=${tar_name}" >> $GITHUB_ENV
 
-      - name: Build Desktop (skip non-native)
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          MOW_VERSION: ${{ steps.version.outputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          BIN="mow-desktop${{ matrix.goos == 'windows' && '.exe' || '' }}"
-          tar_name="mow-desktop-${{ matrix.target }}-${{ matrix.arch }}.tar.gz"
-          cd apps/desktop
-          # Wails 桌面端需要 CGO，交叉编译受限于平台能力；
-          # 非原生平台编译可能会跳过（Wails 不支持纯交叉编译）。
-          # 此处仅尝试 go build，失败不阻塞。
-          CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -X github.com/mow/mow/sdk/version.Version=${MOW_VERSION}" -o "../../${BIN}" . 2>/dev/null || true
-          cd ../..
-          if [ -f "${BIN}" ]; then
-            tar -czf "${tar_name}" "${BIN}"
-            rm -f "${BIN}"
-            echo "DESKTOP_ARCHIVE=${tar_name}" >> $GITHUB_ENV
-          else
-            echo "DESKTOP_ARCHIVE=" >> $GITHUB_ENV
-          fi
-
       - name: Generate SHA-256 checksums
         shell: bash
         run: |
@@ -212,6 +190,147 @@ jobs:
           path: |
             *.tar.gz
             *.sha256
+          retention-days: 1
+
+  # =========================================================================
+  # Desktop (Wails) 原生构建
+  #
+  # Wails 依赖各平台原生 WebView / GTK 与 CGO，无法交叉编译。本 job 在
+  # windows / linux / macOS runner 上分别用 `wails build` 出产物；任一平台
+  # 失败都会阻断整个 release，避免过去 `|| true` 静默丢失产物的问题。
+  #
+  # 平台矩阵：
+  #   - windows/amd64  → windows-latest（自带 WebView2 SDK）
+  #   - linux/amd64    → ubuntu-latest（apt 装 libgtk-3 / libwebkit2gtk-4.1）
+  #   - darwin/arm64   → macos-latest（Apple Silicon runner，Wails 原生输出 arm64）
+  #   - darwin/amd64   → macos-13（Intel runner，Wails 原生输出 amd64）
+  # =========================================================================
+  build-desktop:
+    name: build-desktop (${{ matrix.target }}/${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: windows, arch: amd64, goos: windows, goarch: amd64 }
+          - { os: ubuntu-latest,  target: linux,   arch: amd64, goos: linux,   goarch: amd64 }
+          - { os: macos-latest,   target: darwin,  arch: arm64, goos: darwin,  goarch: arm64 }
+          - { os: macos-13,       target: darwin,  arch: amd64, goos: darwin,  goarch: amd64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve and verify version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          TAG_RAW="${GITHUB_REF_NAME#v}"
+          TAG_BASE="${TAG_RAW%%-*}"
+          if [ "$VERSION" != "$TAG_BASE" ]; then
+            echo "VERSION ($VERSION) does not match tag base ($TAG_BASE, from tag $TAG_RAW)" >&2
+            exit 1
+          fi
+          echo "version=$TAG_RAW" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: '**/go.sum'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: npm
+          cache-dependency-path: apps/desktop/frontend/package-lock.json
+
+      - name: Install Linux Wails dependencies
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config \
+            libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install Wails CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+          "$(go env GOPATH)/bin/wails" version
+
+      - name: Build Desktop (Wails, native)
+        env:
+          MOW_VERSION: ${{ steps.version.outputs.version }}
+          CGO_ENABLED: '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          cd apps/desktop
+          # wails build 会依次执行 npm install / npm run build / go build。
+          # 使用 -platform 显式声明目标；-ldflags 通过 Wails 透传给底层 go build。
+          # Ubuntu 24.04+ 使用 libwebkit2gtk-4.1，需要 `-tags webkit2_41`（wails 官方指引）。
+          # 失败必须阻断：整个 step 不再吞错。
+          EXTRA_TAGS=""
+          if [ "${{ matrix.target }}" = "linux" ]; then
+            EXTRA_TAGS="-tags webkit2_41"
+          fi
+          wails build \
+            -platform "${{ matrix.goos }}/${{ matrix.goarch }}" \
+            -trimpath \
+            ${EXTRA_TAGS} \
+            -ldflags "-s -w -X github.com/mow/mow/sdk/version.Version=${MOW_VERSION}"
+
+      - name: Package Desktop artifact
+        env:
+          MOW_VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN_EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then BIN_EXT=".exe"; fi
+          tar_name="mow-desktop-${{ matrix.target }}-${{ matrix.arch }}.tar.gz"
+
+          # Wails 产物路径约定：apps/desktop/build/bin/
+          #   - windows: mow-desktop.exe
+          #   - linux:   mow-desktop
+          #   - darwin:  mow-desktop 或 mow-desktop.app（-platform darwin/<arch> 输出 bundle）
+          cd apps/desktop/build/bin
+
+          if [ "${{ matrix.goos }}" = "darwin" ]; then
+            # macOS Wails 默认输出 .app bundle；直接打包整个 bundle 目录。
+            if [ -d "mow-desktop.app" ]; then
+              tar -czf "${GITHUB_WORKSPACE}/${tar_name}" "mow-desktop.app"
+            elif [ -f "mow-desktop" ]; then
+              tar -czf "${GITHUB_WORKSPACE}/${tar_name}" "mow-desktop"
+            else
+              echo "desktop artifact not found under apps/desktop/build/bin" >&2
+              ls -la
+              exit 1
+            fi
+          else
+            BIN="mow-desktop${BIN_EXT}"
+            if [ ! -f "${BIN}" ]; then
+              echo "desktop artifact ${BIN} not found under apps/desktop/build/bin" >&2
+              ls -la
+              exit 1
+            fi
+            tar -czf "${GITHUB_WORKSPACE}/${tar_name}" "${BIN}"
+          fi
+          cd "${GITHUB_WORKSPACE}"
+          # macOS runner 没有 sha256sum；shasum 全平台可用（Windows Git Bash 也自带）。
+          shasum -a 256 "${tar_name}" > "${tar_name}.sha256"
+          ls -la "${tar_name}" "${tar_name}.sha256"
+
+      - name: Upload desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.target }}-${{ matrix.arch }}
+          path: |
+            mow-desktop-${{ matrix.target }}-${{ matrix.arch }}.tar.gz
+            mow-desktop-${{ matrix.target }}-${{ matrix.arch }}.tar.gz.sha256
           retention-days: 1
 
   # =========================================================================
@@ -310,7 +429,7 @@ jobs:
   # =========================================================================
   release:
     name: release
-    needs: [build, catalog, smoke]
+    needs: [build, build-desktop, catalog, smoke]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

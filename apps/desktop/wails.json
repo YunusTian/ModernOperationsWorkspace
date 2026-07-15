@@ -8,7 +8,9 @@
   "frontend:dev:serverUrl": "auto",
   "wailsjsdir": "./frontend/src",
   "prebuildhooks": {
-    "*": "cmd /c \"if exist frontend\\src\\wailsjs rmdir /s /q frontend\\src\\wailsjs\""
+    "windows/*": "cmd /c \"if exist frontend\\src\\wailsjs rmdir /s /q frontend\\src\\wailsjs\"",
+    "linux/*": "rm -rf frontend/src/wailsjs",
+    "darwin/*": "rm -rf frontend/src/wailsjs"
   },
   "author": {
     "name": "MOW"
