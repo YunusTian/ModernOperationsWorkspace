@@ -193,6 +193,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/mow/mow/sdk"
 	"github.com/mow/mow/sdk/pluginserve"
@@ -222,13 +223,22 @@ type helloCmd struct{}
 func (c *helloCmd) Spec() sdk.CommandSpec {
 	return sdk.CommandSpec{
 		ID:          "hello",
-		Permission:  sdk.PermissionRead,
+		Permission:  sdk.PermRead,
 		Description: "sanity-check command emitted by 'mow plugin init'",
 	}
 }
 
-func (c *helloCmd) Execute(ctx context.Context, req sdk.CommandRequest) (sdk.CommandResponse, error) {
-	return sdk.CommandResponse{Data: map[string]any{"message": "hello from __ID__"}}, nil
+func (c *helloCmd) Execute(ctx context.Context, req *sdk.ExecuteRequest) (*sdk.ExecuteResponse, error) {
+	payload, err := json.Marshal(map[string]string{"message": "hello from __ID__"})
+	if err != nil {
+		return nil, err
+	}
+	return &sdk.ExecuteResponse{Data: payload}, nil
+}
+
+// ExecuteStream is required by sdk.CommandHandler; hello is one-shot.
+func (c *helloCmd) ExecuteStream(ctx context.Context, s sdk.Stream) error {
+	return sdk.ErrNotSupported
 }
 
 func main() {
