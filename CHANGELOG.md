@@ -7,6 +7,31 @@
 
 ## [Unreleased]
 
+### v0.5.4 开发者体验（DX）—— `plugin init` / `plugin lint` 测试 + Authoring Guide
+
+- **背景**：v0.5.0–v0.5.3 已把插件平台的运行时地基做完（Manifest / 生命周期 / Catalog / Schema-driven UI / PVE 参考实现），但外部开发者上手成本依旧偏高——[apps/cli/plugin_dev.go](./apps/cli/plugin_dev.go) 的 `plugin init` / `plugin lint` / `plugin package` 三条 DX 命令虽已落地，却**没有单测**，也**没有面向第三方作者的连贯文档**。本次专注补齐这两个缺口，不引入新命令、不改动 SDK / Manifest / Protocol。
+- **新增测试**：[apps/cli/plugin_dev_test.go](./apps/cli/plugin_dev_test.go)，共 6 个 Go 用例，全部不依赖 `go` 工具链本身，可在离线 sandbox 与 CI 里稳定运行：
+    - `TestPluginInit_GeneratesSkeletonAndLintsClean`：断言脚手架四份文件齐全（`plugin.json / main.go / go.mod / README.md`），并且生成的 `plugin.json` 能被 `sdk/manifest.Load` 直接解析（保证脚手架天然通过 `plugin lint`）；同时校验 `main.go` 里 `__ID__ / __NAME__` 占位符均已渲染、`go.mod` 声明了 `module example.com/mow-<id>-plugin` 与 SDK require
+    - `TestPluginInit_RejectsInvalidID`：非法 ID（`BadID`）直接返回 `invalid plugin id` 错误，与 `sdk/manifest.idPattern`（`^[a-z][a-z0-9_-]{1,63}$`）语义一致
+    - `TestPluginInit_RefusesOverwriteWithoutForce`：第二次 `init` 不带 `--force` 必须失败且 `plugin.json` 字节级不变；`--force` 才允许覆盖
+    - `TestPluginLint_HappyText` / `TestPluginLint_JSONReport`：新生成的脚手架跑 `plugin lint` 立刻 OK（含 `--json` 稳定 schema 断言）
+    - `TestPluginLint_ReportsManifestInvalid`：残缺 Manifest（`{"manifestVersion": 1}`）以 `PLUGIN_MANIFEST_INVALID` 错误码退出，`--json` 报告 `ok=false` + `error.code` 齐全
+- **命名冲突处理**：[apps/cli/plugin_catalog_test.go](./apps/cli/plugin_catalog_test.go) 已定义 `runCLI(t, cfgPath, args...)` 帮助函数；本文件改用 `runPluginDevCLI(t, args...)` 独立命名，避免同包重复声明。
+- **新增文档**：[docs/plugin-authoring.md](./docs/plugin-authoring.md)，覆盖第三方 Go 开发者从零上手的完整旅程：
+    - §2 三分钟脚手架（`plugin init` 生成物 + ID 约束 + `--force` 语义）
+    - §3 `plugin lint` vs `plugin validate` 差异矩阵
+    - §4 实现命令（权限语义 / 稳定错误码 / 与 [plugins/pve](./plugins/pve/) 等参考实现的映射）
+    - §5 SDK Conformance 用法（`sdk.conformance.Run` + Dangerous 自动断言 + FakeStream）
+    - §6 `plugin package` 语义（`go build -trimpath -ldflags="-s -w"` + `platforms[]` 裁剪 + tar.gz + `.sha256`）
+    - §7 本地安装 → `mow run <id>.<cmd>` 闭环
+    - §8 发布到 Catalog（HTTP(S) 静态 JSON + SHA-256 强校验）
+    - §9 迭代小抄 · §10 已知限制（热重载 / 迁移工具 / Windows arm64 未纳入 Release 矩阵）
+- **不涉及**：
+    - 不改 SDK / Plugin Protocol / Manifest schema
+    - 不新增 CLI 命令（`plugin dev --watch` 热重载仍在计划中，见 [开发计划 §4.5.1](./docs/development-plan-v0.5-v1.0.md#451-v054插件开发者体验v053-后追加可延后到-v06-前)）
+    - 不改动 CI / Release workflow（`plugin package` 测试为可选，本轮未纳入常规 CI；`plugin init` / `plugin lint` 由本地 `go test ./apps/cli/...` 自动覆盖）
+- **本地验证**：`go test ./apps/cli/ -run "TestPluginInit|TestPluginLint" -count=1 -v` 全部通过（6/6，2.010s）。
+
 ### 前端边缘测试补齐（PluginsPage + SettingsDrawer）
 
 - **背景**：v0.5.2 落地 Plugins Marketplace + Schema-driven SettingsDrawer 时，前端只有 [AIPage.test.tsx](./apps/desktop/frontend/src/pages/AIPage.test.tsx) 一个用例；`***` 掩码回传、离线降级、install 失败横幅等 UI 边界只靠人工验收。
