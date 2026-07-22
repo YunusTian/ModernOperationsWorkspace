@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/mow/mow/core/plugin/settings"
 )
 
 // InputType 描述 Workflow 声明的输入参数类型。
@@ -39,13 +41,30 @@ type Input struct {
 	// Name：变量名，${name} 引用；必填且在同一 Workflow 内唯一。
 	Name string
 	// Type：受支持的 InputType；空值等价于 InputTypeString。
+	//
+	// v0.6.0 起标 deprecated：新代码请使用 Schema 字段。Type 与 Schema 同时非空
+	// 会在 Validate 阶段被拒绝（INPUT_TYPE_SCHEMA_CONFLICT）。Type shorthand 计划
+	// 在 v0.7 移除；v0.6.x 全系列保留兼容。
 	Type InputType
 	// Required：true 表示执行时必须提供；false 时可缺省。
 	Required bool
 	// Default：默认值（Required=true 时可留空）。
+	//
+	// 与 Schema.Default 的关系：顶层 Default 优先；两者同时出现只输出 WARN，
+	// 不阻断（保持 v0.3 语义）。
 	Default any
 	// Description：给 UI/CLI 展示用的说明文字。
 	Description string
+
+	// Schema 是 v0.6.0 新增的 JSON Schema 字段，复用 core/plugin/settings 编译器。
+	//
+	// 使用方式：
+	//   - Loader 从 YAML 的 inputs[].schema: {type: integer, minimum: 1, ...} 编译
+	//   - Runner 启动前对合并后的 inputs 做 ApplyDefaults + Validate
+	//   - Schema.SecretPaths() 命中的字段会在 History Record / 日志 / redact 输出中脱敏
+	//
+	// nil 时保持 v0.3 语义：只走 Type 校验（若 Type 也为空则不校验）。
+	Schema *settings.Schema
 }
 
 // Step 是 Workflow 的一个执行节点。
@@ -108,6 +127,94 @@ type Step struct {
 	//   - 组内 step **不允许** 引用同组兄弟的 ${steps.<id>.out.*}
 	//   - Validate 会静态拒绝这类引用，避免并发无序导致的隐性 bug
 	Parallel bool
+
+	// ParallelLimit 是 v0.6.0 新增的并发上限（组级）。
+	//
+	// 语义（见 docs/v0.6.0-design.md §3.1）：
+	//   - 仅对 Parallel=true 的 step 有意义；否则 Validate 拒绝 PARALLEL_LIMIT_WITHOUT_PARALLEL
+	//   - 声明位置：**组内任一 step** 都可标；取组内的**最大值**作为该组的实际上限
+	//   - 0 = 无上限（等价于 v0.3 行为，全部并发）
+	//   - 硬上限 512：防止 YAML 手误；违反 → PARALLEL_LIMIT_EXCEEDS_CAP
+	//
+	// v0.6.0 P0：仅落地字段 + Loader + Validate；Runner 侧的 semaphore 走 P1 交付。
+	ParallelLimit int
+
+	// Target 是 v0.6.0 新增的单 step target 覆盖字段。
+	//
+	// 语义（见 docs/v0.6.0-design.md §3.3）：
+	//   - 空字符串 → 继承 RunnerOptions.TargetID（v0.3 现状）
+	//   - 非空 → 该 step 使用指定 target；同一 Workflow 允许出现多个 target
+	//   - Validate 不解析 target 存在性（那是 Command Engine 的事，避免 workflow 校验依赖 config）
+	//
+	// v0.6.0 P0：仅落地字段；Runner 端 CommandRunOptions.TargetID 透传走 P3。
+	Target string
+
+	// Workflow 是 v0.6.0 新增的子工作流调用字段。
+	//
+	// 语义（见 docs/v0.6.0-design.md §3.4）：
+	//   - 与 Command / Recipe 三选一（Validate 强制）
+	//   - Loader 阶段就 resolve 相对路径 → 加载子 workflow → 递归校验
+	//   - 递归深度硬上限 MaxSubWorkflowDepth = 5
+	//   - 循环检测：Loader 维护路径栈，同一路径二次出现 → SUBWORKFLOW_CYCLE
+	//
+	// SubWorkflowInputs 承载从父 step 传递给子 workflow inputs 的映射；
+	// 表达式插值时机在 Runner，此处只是原始 map[string]any（可含 ${inputs.*} 引用）。
+	Workflow          *SubWorkflow
+	SubWorkflowInputs map[string]any
+
+	// ParallelGroup 是 v0.6.0 新增的显式并行组（`step.parallel_group`）。
+	//
+	// 非 nil 时，本 step 与 Command / Recipe / Workflow / 隐式 Parallel 四者互斥。
+	// 见 docs/v0.6.0-design.md §3.2。
+	ParallelGroup *ParallelGroup
+}
+
+// SubWorkflow 描述一次子工作流调用（v0.6.0）。
+//
+// Path 与 Ref 二选一：
+//   - Path：相对路径（如 "./deploy-web.yaml"），Loader 阶段解析成 Loaded
+//   - Ref：注册引用（如 "ref://<id>"），v0.6.0 保留位，Validate 拒绝（WORKFLOW_REF_UNSUPPORTED）
+//
+// Loaded 是 Loader 递归解析出的完整子 Workflow（可为 nil，表示 Ref 分支）。
+type SubWorkflow struct {
+	Path   string
+	Ref    string
+	Loaded *Workflow
+}
+
+// MaxSubWorkflowDepth 是子工作流嵌套深度上限（不含最外层）。
+//
+// 例：workflow A 调 B 调 C 调 D 调 E → 深度 4，合法；再嵌 F → 深度 5，超限。
+// 硬编码而非 Config 可调，避免栈过深导致 goroutine 崩溃。
+const MaxSubWorkflowDepth = 5
+
+// ParallelGroup 是 v0.6.0 新增的显式并行组结构（`step.parallel_group`）。
+//
+// 区别于 v0.3 的隐式归组（连续 Parallel=true 的 step 自动归为一组）：
+//   - v0.6.0 显式声明"这是一个组"，便于表达"batch 并发 + branch 内串行"这种场景
+//   - 单层：branch 内不能再嵌套 parallel_group（v0.7 再谈组中组）
+//   - branch 之间不允许引用彼此 step 的 out（Validate 静态强制）
+//
+// 当 Step.ParallelGroup 非 nil 时，该 step 不使用 Command / Recipe / Workflow / 隐式 Parallel：
+// Validate 会强制四者互斥。
+type ParallelGroup struct {
+	// ParallelLimit 是本组的并发上限（同 Step.ParallelLimit 语义）。
+	ParallelLimit int
+	// Branches 是并行分支列表；每个 branch 内部串行。
+	Branches []Branch
+}
+
+// Branch 是 ParallelGroup 里的一个"顺序段"。
+type Branch struct {
+	// Name：branch 名，同组内必须唯一（BRANCH_NAME_DUPLICATE）。
+	Name string
+	// Target：branch 级默认 target；branch 内 step 未声明 Target 时继承本值。
+	Target string
+	// Steps：branch 内步骤序列，完整继承 Step 全部字段（含 when / retry / compensate）。
+	//
+	// 约束：Steps[i].ParallelGroup 必须为 nil（v0.6.0 单层限制）；
+	// Steps[i].Parallel 也必须为 false（不允许 branch 内再声明隐式并行）。
+	Steps []Step
 }
 
 // CompensateAction 描述一次补偿动作（rollback 时执行）。
@@ -236,6 +343,21 @@ type Workflow struct {
 
 	// OnFailure：Workflow 主流程失败后的补偿声明。nil 表示不做任何补偿。
 	OnFailure *FailurePolicy
+
+	// IdempotencyKey 是 v0.6.0 新增的幂等键表达式（未插值前的原始字符串）。
+	//
+	// 语义（见 docs/v0.6.0-design.md §3.6）：
+	//   - Runner 启动前对该表达式求值一次，写入 History Record.IdempotencyKey
+	//   - v0.6.0 只做求值 + 写盘保留位；实际拒重逻辑到 v0.6.3 触发器
+	//   - 空字符串 = 未启用；求值为空 → IDEMPOTENCY_KEY_EMPTY
+	//   - 支持 ${inputs.*} 引用；不允许 ${steps.*.out.*}（那时 steps 还没跑）
+	IdempotencyKey string
+
+	// ManifestVersion 记录本 Workflow 使用的 DSL 版本。
+	//
+	// v0.6.0 引入 ManifestVersion 概念：缺省 = 1（v0.3 兼容）；显式 2 = v0.6.0 特性开启。
+	// v0.6.0 P0 只落地字段读取，不做版本-字段矩阵校验。
+	ManifestVersion int
 }
 
 // FailurePolicy 描述 Workflow 失败后要做的事。v0.3 第四批仅支持 rollback。
@@ -252,10 +374,12 @@ type FailurePolicy struct {
 //
 // 覆盖：
 //   - workflow.id 非空
-//   - inputs.name 非空且唯一；type 合法
+//   - inputs.name 非空且唯一；type 合法；type 与 schema 互斥（v0.6.0）
 //   - steps 非空；step.id 非空且唯一
-//   - 每个 step 必须且仅能提供 command / recipe 中的一个
+//   - 每个 step 必须且仅能提供 command / recipe / workflow / parallel_group 中的一个（v0.6.0）
 //   - step.timeout 不能为负
+//   - v0.6.0 增强：parallel_limit 语义、parallel_group.branches 静态检查、
+//     workflow ref 保留位、branch 跨引用拒绝
 func (w *Workflow) Validate() error {
 	if w == nil {
 		return errors.New("workflow is nil")
@@ -272,7 +396,8 @@ func (w *Workflow) Validate() error {
 		return errors.New("workflow has no steps")
 	}
 	seen := make(map[string]struct{}, len(w.Steps))
-	for i, s := range w.Steps {
+	for i := range w.Steps {
+		s := &w.Steps[i]
 		if s.ID == "" {
 			return fmt.Errorf("step[%d]: id is empty", i)
 		}
@@ -281,11 +406,8 @@ func (w *Workflow) Validate() error {
 		}
 		seen[s.ID] = struct{}{}
 
-		switch {
-		case s.Command == "" && s.Recipe == "":
-			return fmt.Errorf("step %q: command or recipe required", s.ID)
-		case s.Command != "" && s.Recipe != "":
-			return fmt.Errorf("step %q: command and recipe are mutually exclusive", s.ID)
+		if err := validateStepExclusivity(s); err != nil {
+			return err
 		}
 
 		if s.Timeout < 0 {
@@ -297,12 +419,223 @@ func (w *Workflow) Validate() error {
 		if err := s.Compensate.Validate(); err != nil {
 			return fmt.Errorf("step %q: %w", s.ID, err)
 		}
+		if err := validateParallelLimit(s); err != nil {
+			return err
+		}
+		if err := validateStepWorkflow(s); err != nil {
+			return err
+		}
+		if s.ParallelGroup != nil {
+			if err := validateParallelGroupNode(s); err != nil {
+				return err
+			}
+		}
 	}
 	if err := validateOnFailure(w.OnFailure, seen); err != nil {
 		return err
 	}
 	if err := validateParallelGroups(w.Steps); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateStepExclusivity 保证 step 的 command / recipe / workflow / parallel_group 四者互斥。
+//
+// v0.3 语义：command / recipe 二选一。
+// v0.6.0 扩展：加入 workflow / parallel_group 两个"编排"类型；四者严格互斥，
+// 且必须恰好选一个（否则 Runner 无从下手）。
+func validateStepExclusivity(s *Step) error {
+	kinds := 0
+	if s.Command != "" {
+		kinds++
+	}
+	if s.Recipe != "" {
+		kinds++
+	}
+	if s.Workflow != nil {
+		kinds++
+	}
+	if s.ParallelGroup != nil {
+		kinds++
+	}
+	switch {
+	case kinds == 0:
+		// 保留 v0.3 措辞前缀 "command or recipe required"，避免下游测试断言破裂。
+		return fmt.Errorf("step %q: command or recipe required (or workflow / parallel_group for v0.6.0+)", s.ID)
+	case kinds > 1:
+		return fmt.Errorf("step %q: command / recipe / workflow / parallel_group are mutually exclusive", s.ID)
+	}
+	return nil
+}
+
+// validateParallelLimit 校验 v0.6.0 引入的 parallel_limit 字段。
+func validateParallelLimit(s *Step) error {
+	if s.ParallelLimit == 0 {
+		return nil
+	}
+	if s.ParallelLimit < 0 {
+		return fmt.Errorf("step %q: parallel_limit must be >= 0 (PARALLEL_LIMIT_INVALID)", s.ID)
+	}
+	if s.ParallelLimit > 512 {
+		return fmt.Errorf("step %q: parallel_limit=%d exceeds hard cap 512 (PARALLEL_LIMIT_EXCEEDS_CAP)", s.ID, s.ParallelLimit)
+	}
+	// parallel_limit 必须跟 Parallel=true 或 ParallelGroup 组合出现。
+	// 单独放到普通顺序 step 上毫无意义，拒绝以规避歧义。
+	if !s.Parallel && s.ParallelGroup == nil {
+		return fmt.Errorf("step %q: parallel_limit requires parallel:true or parallel_group (PARALLEL_LIMIT_WITHOUT_PARALLEL)", s.ID)
+	}
+	return nil
+}
+
+// validateStepWorkflow 校验 v0.6.0 引入的 step.workflow 子调用字段。
+//
+// 校验点：
+//   - Path 与 Ref 二选一（外层已由 Loader 保证）
+//   - Ref 分支在 v0.6.0 一律拒绝（WORKFLOW_REF_UNSUPPORTED）
+//   - Path 分支必须有 Loaded（由 Loader 递归加载），否则视为内部错误
+//   - Loaded.Validate() 递归校验（Loader 已经跑过一次，这里是 defense-in-depth）
+func validateStepWorkflow(s *Step) error {
+	if s.Workflow == nil {
+		return nil
+	}
+	sw := s.Workflow
+	if sw.Ref != "" {
+		return fmt.Errorf("step %q: workflow.ref is reserved for v0.6.1+ (WORKFLOW_REF_UNSUPPORTED)", s.ID)
+	}
+	if sw.Path == "" {
+		return fmt.Errorf("step %q: workflow.path or workflow.ref is required", s.ID)
+	}
+	if sw.Loaded == nil {
+		// Loader 应该已经加载；出现在这里说明测试代码手工构造了 SubWorkflow 但没预置 Loaded。
+		return fmt.Errorf("step %q: sub-workflow %q is not loaded (loader stage skipped?)", s.ID, sw.Path)
+	}
+	if err := sw.Loaded.Validate(); err != nil {
+		return fmt.Errorf("step %q: sub-workflow %q: %w", s.ID, sw.Path, err)
+	}
+	return nil
+}
+
+// validateParallelGroupNode 校验 v0.6.0 新增的显式 parallel_group：
+//   - branches 数 ≥ 1
+//   - branch.name 唯一
+//   - branch.steps 非空
+//   - 每个 branch 内 step **不允许** 再嵌套 ParallelGroup 或 Parallel=true（v0.6.0 单层限制）
+//   - branch 内每个 step 走一遍 validateStep* 系列，保持与顶层同款语义
+//   - 组内 parallel_limit（如设置）走 [0, 512] 范围
+//   - branch 间 out 互引拒绝，由 validateParallelGroups 统一处理
+func validateParallelGroupNode(s *Step) error {
+	pg := s.ParallelGroup
+	if pg == nil {
+		return nil
+	}
+	if len(pg.Branches) == 0 {
+		return fmt.Errorf("step %q: parallel_group.branches is empty", s.ID)
+	}
+	if pg.ParallelLimit < 0 {
+		return fmt.Errorf("step %q: parallel_group.parallel_limit must be >= 0", s.ID)
+	}
+	if pg.ParallelLimit > 512 {
+		return fmt.Errorf("step %q: parallel_group.parallel_limit=%d exceeds hard cap 512 (PARALLEL_LIMIT_EXCEEDS_CAP)", s.ID, pg.ParallelLimit)
+	}
+	names := make(map[string]struct{}, len(pg.Branches))
+	for i := range pg.Branches {
+		b := &pg.Branches[i]
+		if b.Name == "" {
+			return fmt.Errorf("step %q: branches[%d].name is empty", s.ID, i)
+		}
+		if _, dup := names[b.Name]; dup {
+			return fmt.Errorf("step %q: duplicate branch name %q (BRANCH_NAME_DUPLICATE)", s.ID, b.Name)
+		}
+		names[b.Name] = struct{}{}
+		if len(b.Steps) == 0 {
+			return fmt.Errorf("step %q: branch %q has no steps", s.ID, b.Name)
+		}
+		innerSeen := make(map[string]struct{}, len(b.Steps))
+		for j := range b.Steps {
+			inner := &b.Steps[j]
+			if inner.ID == "" {
+				return fmt.Errorf("step %q: branch %q step[%d]: id is empty", s.ID, b.Name, j)
+			}
+			if _, dup := innerSeen[inner.ID]; dup {
+				return fmt.Errorf("step %q: branch %q: duplicate step id %q", s.ID, b.Name, inner.ID)
+			}
+			innerSeen[inner.ID] = struct{}{}
+			if inner.ParallelGroup != nil {
+				return fmt.Errorf("step %q: branch %q step %q: nested parallel_group is not supported in v0.6.0 (NESTED_PARALLEL_GROUP_FORBIDDEN)", s.ID, b.Name, inner.ID)
+			}
+			if inner.Parallel {
+				return fmt.Errorf("step %q: branch %q step %q: parallel:true inside parallel_group is not supported in v0.6.0 (NESTED_PARALLEL_FORBIDDEN)", s.ID, b.Name, inner.ID)
+			}
+			if err := validateStepExclusivity(inner); err != nil {
+				return err
+			}
+			if inner.Timeout < 0 {
+				return fmt.Errorf("step %q: branch %q step %q: timeout must be >= 0", s.ID, b.Name, inner.ID)
+			}
+			if err := inner.Retry.Validate(); err != nil {
+				return fmt.Errorf("step %q: branch %q step %q: %w", s.ID, b.Name, inner.ID, err)
+			}
+			if err := inner.Compensate.Validate(); err != nil {
+				return fmt.Errorf("step %q: branch %q step %q: %w", s.ID, b.Name, inner.ID, err)
+			}
+			if err := validateStepWorkflow(inner); err != nil {
+				return err
+			}
+			if inner.ParallelLimit != 0 {
+				return fmt.Errorf("step %q: branch %q step %q: parallel_limit not allowed inside parallel_group (use parallel_group.parallel_limit)", s.ID, b.Name, inner.ID)
+			}
+		}
+	}
+	if err := validateBranchCrossRefs(s.ID, pg); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateBranchCrossRefs 静态拒绝"branch A 的 step 引用 branch B 的 step.out"。
+//
+// 逻辑与 validateParallelGroups 中隐式并行组的 findSiblingRef 一致，
+// 只是把"同组成员集合"改为"所有其它 branch 的 step id 集合"。
+func validateBranchCrossRefs(parentID string, pg *ParallelGroup) error {
+	// 每个 branch 收集自己的 step id 集合。
+	perBranch := make([]map[string]struct{}, len(pg.Branches))
+	for i := range pg.Branches {
+		m := make(map[string]struct{}, len(pg.Branches[i].Steps))
+		for _, st := range pg.Branches[i].Steps {
+			m[st.ID] = struct{}{}
+		}
+		perBranch[i] = m
+	}
+	// 对每个 branch，"外部"集合 = 所有其它 branch 的 step id 之并。
+	for i := range pg.Branches {
+		external := make(map[string]struct{})
+		for j := range pg.Branches {
+			if j == i {
+				continue
+			}
+			for id := range perBranch[j] {
+				external[id] = struct{}{}
+			}
+		}
+		if len(external) == 0 {
+			continue
+		}
+		for _, st := range pg.Branches[i].Steps {
+			bad := findSiblingRef(st.Params, external, st.ID)
+			if bad == "" {
+				bad = findSiblingRefStr(st.When, external, st.ID)
+			}
+			if bad == "" && st.Compensate != nil {
+				bad = findSiblingRef(st.Compensate.Params, external, st.ID)
+			}
+			if bad != "" {
+				return fmt.Errorf(
+					"step %q: branch %q step %q references step %q from a different branch via steps.%s.out (forbidden — parallel branches are unordered) (BRANCH_OUT_REF)",
+					parentID, pg.Branches[i].Name, st.ID, bad, bad,
+				)
+			}
+		}
 	}
 	return nil
 }
@@ -342,6 +675,11 @@ func validateInputs(inputs []Input) error {
 
 		if in.Type != "" && !isValidInputType(in.Type) {
 			return fmt.Errorf("input %q: unsupported type %q", in.Name, in.Type)
+		}
+		// v0.6.0：type 与 schema 互斥（避免语义冲突：例如 type=int + schema.type=string）。
+		// 迁移期建议用户选一边；shorthand 计划在 v0.7 移除。
+		if in.Type != "" && in.Schema != nil {
+			return fmt.Errorf("input %q: type and schema are mutually exclusive (INPUT_TYPE_SCHEMA_CONFLICT); migrate 'type:' shorthand to 'schema:' before v0.7", in.Name)
 		}
 	}
 	return nil
