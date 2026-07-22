@@ -30,6 +30,7 @@ func newPluginCmd(holder *appHolder) *cobra.Command {
 		newPluginInitCmd(),
 		newPluginLintCmd(),
 		newPluginPackageCmd(),
+		newPluginDevCmd(holder),
 		newPluginValidateCmd(),
 		newPluginListCmd(holder),
 		newPluginInstallCmd(holder),

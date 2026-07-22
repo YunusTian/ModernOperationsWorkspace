@@ -172,6 +172,44 @@ mow plugin uninstall acme
 
 Desktop 用户走 **Plugins → Marketplace → Install from file** 也能完成同一链路。
 
+## 7.1 热重载（`mow plugin dev --watch`）
+
+如果你正在密集迭代命令实现，`mow plugin dev` 把 §6 的 build + §7 的 install/update 合并成一步，还能自动监听源码变化：
+
+```powershell
+# 一次性：build → 安装到 PluginsDir → 自动 enable
+mow plugin dev --dir .
+
+# 或者开启 watch，改完保存自动重装
+mow plugin dev --dir . --watch --interval 300ms
+```
+
+要点：
+
+- 首次运行走 `Lifecycle.Install`；后续走 `Lifecycle.Update`（原子替换 + 失败回退）。装完自动 `Enable`，无需再敲 `mow plugin enable`
+- 只支持 host GOOS/GOARCH —— Manifest 的 `platforms[]` 会被裁剪成当前平台条目，跨平台 dev 没有意义（会在参数校验阶段直接拒绝）
+- 监听白名单：`*.go` / `*.yaml` / `*.yml` / `*.json` / `go.mod` / `go.sum`；自动跳过 `.git` / `vendor/` / `dist/` / `node_modules/`。若命中变更就重跑 build + Update
+- 轮询实现（默认 500ms 间隔），不引入 fsnotify 依赖。Ctrl-C 可随时退出
+- build 失败不会退出 watch —— 允许你改回来继续；`stderr` 会打印错误但循环继续
+
+典型 dev 循环：
+
+```text
+[shell1] mow plugin dev --watch
+         dev: building linux/amd64 → bin/mow-acme-plugin
+         installed acme@0.1.0 (enabled).
+         watching /home/you/acme (interval=500ms); press Ctrl-C to stop.
+
+[edit main.go]
+
+         dev: change detected at 2026-07-17T16:04:12Z
+         dev: building linux/amd64 → bin/mow-acme-plugin
+         updated acme@0.1.0 (enabled).
+
+[shell2] mow run acme.hello
+         {"message":"hello from acme"}
+```
+
 ## 8. 发布到 Catalog（可选）
 
 MOW 的 Catalog 只是一份静态 JSON（[core/plugin/catalog/catalog.go](../core/plugin/catalog/catalog.go)），你可以：
@@ -186,13 +224,13 @@ MOW 的 Catalog 只是一份静态 JSON（[core/plugin/catalog/catalog.go](../co
 | 场景 | 命令 |
 |---|---|
 | 修完 Manifest 想立刻校验 | `mow plugin lint --dir .` |
-| 改完代码想快速本地验证 | `mow plugin package --os <当前平台> && mow plugin install ./dist/*.tar.gz --path && mow plugin enable <id>` |
+| 改完代码想立刻测（一步到位） | `mow plugin dev --dir .`（含 watch：加 `--watch`） |
 | 想在 CI 上门禁 | `go test ./...`（conformance）+ `mow plugin validate ./dist/staging`（entrypoint + checksum）|
 | 排查 Manifest / Metadata 不一致 | 查看 [core/plugin/manifest_gate.go](../core/plugin/manifest_gate.go) 的两道关卡 |
 
 ## 10. 已知限制（v0.5.4）
 
-- 暂无热重载：改代码后需要重新 `plugin package → plugin update`。热重载模式（`mow plugin dev --watch`）在计划中
+- `plugin dev --watch` 采用 mtime 轮询（默认 500ms），改动大目录时 CPU/IO 敏感场景需要手动调大 `--interval`；未来若有需求会切换到 fsnotify
 - 暂无 Manifest 迁移工具：`dataVersion` / `migrations[]` 由插件自行处理
 - Windows arm64 未纳入官方 Release 矩阵
 

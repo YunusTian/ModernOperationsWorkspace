@@ -7,30 +7,34 @@
 
 ## [Unreleased]
 
-### v0.5.4 开发者体验（DX）—— `plugin init` / `plugin lint` 测试 + Authoring Guide
+### v0.5.4 开发者体验（DX）—— `plugin init` / `plugin lint` 测试 + `plugin dev --watch` 热重载 + Authoring Guide
 
-- **背景**：v0.5.0–v0.5.3 已把插件平台的运行时地基做完（Manifest / 生命周期 / Catalog / Schema-driven UI / PVE 参考实现），但外部开发者上手成本依旧偏高——[apps/cli/plugin_dev.go](./apps/cli/plugin_dev.go) 的 `plugin init` / `plugin lint` / `plugin package` 三条 DX 命令虽已落地，却**没有单测**，也**没有面向第三方作者的连贯文档**。本次专注补齐这两个缺口，不引入新命令、不改动 SDK / Manifest / Protocol。
-- **新增测试**：[apps/cli/plugin_dev_test.go](./apps/cli/plugin_dev_test.go)，共 6 个 Go 用例，全部不依赖 `go` 工具链本身，可在离线 sandbox 与 CI 里稳定运行：
-    - `TestPluginInit_GeneratesSkeletonAndLintsClean`：断言脚手架四份文件齐全（`plugin.json / main.go / go.mod / README.md`），并且生成的 `plugin.json` 能被 `sdk/manifest.Load` 直接解析（保证脚手架天然通过 `plugin lint`）；同时校验 `main.go` 里 `__ID__ / __NAME__` 占位符均已渲染、`go.mod` 声明了 `module example.com/mow-<id>-plugin` 与 SDK require
-    - `TestPluginInit_RejectsInvalidID`：非法 ID（`BadID`）直接返回 `invalid plugin id` 错误，与 `sdk/manifest.idPattern`（`^[a-z][a-z0-9_-]{1,63}$`）语义一致
-    - `TestPluginInit_RefusesOverwriteWithoutForce`：第二次 `init` 不带 `--force` 必须失败且 `plugin.json` 字节级不变；`--force` 才允许覆盖
-    - `TestPluginLint_HappyText` / `TestPluginLint_JSONReport`：新生成的脚手架跑 `plugin lint` 立刻 OK（含 `--json` 稳定 schema 断言）
-    - `TestPluginLint_ReportsManifestInvalid`：残缺 Manifest（`{"manifestVersion": 1}`）以 `PLUGIN_MANIFEST_INVALID` 错误码退出，`--json` 报告 `ok=false` + `error.code` 齐全
-- **命名冲突处理**：[apps/cli/plugin_catalog_test.go](./apps/cli/plugin_catalog_test.go) 已定义 `runCLI(t, cfgPath, args...)` 帮助函数；本文件改用 `runPluginDevCLI(t, args...)` 独立命名，避免同包重复声明。
-- **新增文档**：[docs/plugin-authoring.md](./docs/plugin-authoring.md)，覆盖第三方 Go 开发者从零上手的完整旅程：
-    - §2 三分钟脚手架（`plugin init` 生成物 + ID 约束 + `--force` 语义）
-    - §3 `plugin lint` vs `plugin validate` 差异矩阵
-    - §4 实现命令（权限语义 / 稳定错误码 / 与 [plugins/pve](./plugins/pve/) 等参考实现的映射）
-    - §5 SDK Conformance 用法（`sdk.conformance.Run` + Dangerous 自动断言 + FakeStream）
-    - §6 `plugin package` 语义（`go build -trimpath -ldflags="-s -w"` + `platforms[]` 裁剪 + tar.gz + `.sha256`）
-    - §7 本地安装 → `mow run <id>.<cmd>` 闭环
-    - §8 发布到 Catalog（HTTP(S) 静态 JSON + SHA-256 强校验）
-    - §9 迭代小抄 · §10 已知限制（热重载 / 迁移工具 / Windows arm64 未纳入 Release 矩阵）
+- **背景**：v0.5.0–v0.5.3 已把插件平台的运行时地基做完（Manifest / 生命周期 / Catalog / Schema-driven UI / PVE 参考实现），但外部开发者上手成本依旧偏高——[apps/cli/plugin_dev.go](./apps/cli/plugin_dev.go) 的 `plugin init` / `plugin lint` / `plugin package` 三条 DX 命令虽已落地，却**没有单测**，也**没有面向第三方作者的连贯文档**；日常迭代还得 `package → install --path → enable` 三步走。本轮补齐测试、文档，并新增 `mow plugin dev [--watch]` 把日常迭代压到一步。不改动 SDK / Manifest / Plugin Protocol。
+- **新增命令 `mow plugin dev`**（[apps/cli/plugin_watch.go](./apps/cli/plugin_watch.go)）：
+    - 数据流：`stageDevPackage`（复用 §6 的 build + platforms 裁剪 + checksum 注入）→ 通过 `core/plugin.Lifecycle` 走 `Install`（首次）或 `Update`（后续，原子替换 + 失败回退）到 `<PluginsDir>/<id>` → 自动 `SetEnabled(true)`，改完就能 `mow run <id>.<cmd>`
+    - `--watch`：轮询 `<srcDir>` 下的 `*.go / *.yaml / *.yml / *.json / go.mod / go.sum` 的 mtime，跳过 `.git / vendor / dist / node_modules`；`--interval` 控制间隔（默认 500ms）。**不引 fsnotify** —— 一个 dev 工具没必要拉跨平台原生依赖，轮询对本地开发中小型仓库完全够用，并规避 Windows fsnotify 的 rename+create 顺序、隐藏文件等边界
+    - 强制 host GOOS/GOARCH：Manifest 的 `platforms[]` 会裁剪成当前平台条目，跨平台 dev 无意义（参数校验阶段直接拒绝）
+    - build 失败**不退出 watch loop**，允许用户改回来继续；`stderr` 打印错误但循环继续
+    - **依赖注入 `packageBuilder`**：生产实现 `goBuilder{}` 走 `runGoBuild`，测试实现只写占位字节；单测因此无需 `go` 工具链
+- **`plugin_dev.go` 命令注册**：[apps/cli/plugin.go](./apps/cli/plugin.go) 的 `newPluginCmd` 追加 `newPluginDevCmd(holder)`，与 `init / lint / package / validate / list / install / update / uninstall / enable / disable / doctor / search / catalog / config` 并列
+- **新增测试（10 个用例）**：
+    - [apps/cli/plugin_dev_test.go](./apps/cli/plugin_dev_test.go) 共 6 个用例（init 脚手架完整性、非法 ID 拦截、`--force` 覆盖语义、lint 主路径 + `--json` schema、`PLUGIN_MANIFEST_INVALID` 错误码传播），全部不依赖 `go` 工具链
+    - [apps/cli/plugin_watch_test.go](./apps/cli/plugin_watch_test.go) 新增 4 个用例：
+        - `TestPluginDev_FirstRunInstallsAndEnables`：首次运行走 `Install`，state 里 `enabled=true`，`bin/mow-<id>-plugin(.exe)` 与 `plugin.json` 均落到 `<PluginsDir>/<id>`
+        - `TestPluginDev_SecondRunUpdates`：mutate fake 二进制内容让 checksum 变化 → 走 `Update` 路径，stdout 报告 `updated`
+        - `TestPluginDev_WatchTriggersRebuildOnMtimeBump`：`--watch --interval=20ms --MaxCycles=1`，测试线程 `Chtimes(main.go, +2s)` bump mtime，watch loop 触发第二次 build 后优雅退出
+        - `TestPluginDev_RejectsCrossPlatform`：`GOOS != runtime.GOOS` 直接拒绝
+- **命名冲突处理**：[apps/cli/plugin_catalog_test.go](./apps/cli/plugin_catalog_test.go) 已定义 `runCLI(t, cfgPath, args...)`；本轮新增的 test file 改用 `runPluginDevCLI(t, args...)` 独立命名，避免同包重复声明
+- **新增文档**：[docs/plugin-authoring.md](./docs/plugin-authoring.md) 10 节开发者旅程：
+    - §2 三分钟脚手架 · §3 `plugin lint` vs `plugin validate` 差异矩阵 · §4 权限语义 / 稳定错误码 · §5 SDK Conformance · §6 `plugin package` · **§7.1 `plugin dev --watch` 热重载**（含数据流 / 白名单 / 典型 dev 循环 shell 输出） · §8 Catalog 发布 · §9 迭代小抄 · §10 已知限制
 - **不涉及**：
     - 不改 SDK / Plugin Protocol / Manifest schema
-    - 不新增 CLI 命令（`plugin dev --watch` 热重载仍在计划中，见 [开发计划 §4.5.1](./docs/development-plan-v0.5-v1.0.md#451-v054插件开发者体验v053-后追加可延后到-v06-前)）
-    - 不改动 CI / Release workflow（`plugin package` 测试为可选，本轮未纳入常规 CI；`plugin init` / `plugin lint` 由本地 `go test ./apps/cli/...` 自动覆盖）
-- **本地验证**：`go test ./apps/cli/ -run "TestPluginInit|TestPluginLint" -count=1 -v` 全部通过（6/6，2.010s）。
+    - `plugin package` 测试仍未纳入常规 CI（需真实 `go build`；本轮 dev 测试用假 builder 规避了同类问题）
+    - 不改动 CI / Release workflow
+- **本地验证**：
+    - `go test ./apps/cli/ -run "TestPluginInit|TestPluginLint|TestPluginDev" -count=1 -v` → 10/10 PASS
+    - `go test ./apps/cli/ -count=1` → PASS（4.705s，全量 CLI 测试）
+    - `go vet ./apps/cli/...` → clean
 
 ### 前端边缘测试补齐（PluginsPage + SettingsDrawer）
 
