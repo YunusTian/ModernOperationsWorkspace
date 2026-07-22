@@ -143,6 +143,17 @@ v0.5.2 的 patch 版本，不引入新特性。修复 Windows install-smoke 在 
 - ✅ 主干 CI 在 windows-latest 的 test job 中执行该回归作为 pre-tag 门禁
 - ✅ `v0.5.3` tag 已推送；三平台 Release Smoke 结果以 GitHub Actions [release workflow](../.github/workflows/release.yml) 为准
 
+### v0.5.4 — 插件开发者体验（DX）✅ 已实现，待 tag
+
+v0.5.3 之后的 DX 增量。不引入新特性，也不改动 SDK / Manifest / Plugin Protocol；把第三方开发者从零到一的路径压到 `init → dev --watch → package → catalog` 一条闭环。详见 [v0.5.4 验收清单](./v0.5.4-acceptance-checklist.md)。
+
+- ✅ 新增 `mow plugin dev [--watch]` 命令（[apps/cli/plugin_watch.go](../apps/cli/plugin_watch.go)）：`stage → Lifecycle.Install/Update → SetEnabled(true)` 一步完成；`--watch` 轮询 `*.go / *.yaml / *.yml / *.json / go.mod / go.sum` 触发热重载
+- ✅ 强制 host GOOS/GOARCH；build 失败不退出 watch loop；依赖注入 `packageBuilder`，单测无需 `go` 工具链
+- ✅ 新增 10 个 CLI 单测（[plugin_dev_test.go](../apps/cli/plugin_dev_test.go) × 6 + [plugin_watch_test.go](../apps/cli/plugin_watch_test.go) × 4）
+- ✅ 新增 9 个前端边缘用例（[PluginsPage.test.tsx](../apps/desktop/frontend/src/pages/PluginsPage.test.tsx)），覆盖 healthy / broken / incompatible / catalog cache / install 失败 / secret 保留语义
+- ✅ 新增 [docs/plugin-authoring.md](./plugin-authoring.md) 10 节开发者旅程，§7.1 专门覆盖 `plugin dev --watch`
+- ✅ `VERSION` / `sdk/version/version.go` / 前端 `package.json` / 四款官方插件 `plugin.json` 版本号统一到 `0.5.4`；已发布的 v0.5.3 catalog 与二进制无需重打
+
 ## v0.6 — Workflow 2.0
 
 - Workflow 版本化、子工作流、审批、Dry-run

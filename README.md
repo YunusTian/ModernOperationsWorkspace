@@ -9,7 +9,7 @@
 `Core First` · `AI Optional` · `Plugin Everything`
 
 [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](./LICENSE)
-[![Status](https://img.shields.io/badge/status-v0.5.3_released-brightgreen.svg)](./CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.5.4_released-brightgreen.svg)](./CHANGELOG.md)
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8.svg)](https://go.dev)
 [![Wails](https://img.shields.io/badge/Wails-v2-DF0000.svg)](https://wails.io)
 
@@ -79,13 +79,13 @@ MOW 是一款面向**开发者与运维工程师**的跨平台运维工作台：
 ## 文档
 
 - 📘 [Architecture.md](./Architecture.md) — 架构总纲
-- 📝 [CHANGELOG.md](./CHANGELOG.md) — 版本变更日志（v0.1 → v0.5.3）
+- 📝 [CHANGELOG.md](./CHANGELOG.md) — 版本变更日志（v0.1 → v0.5.4）
 - 📁 [docs/](./docs) — 各模块 RFC 索引
   - [vision](./docs/vision.md) · [design principles](./docs/design-principles.md) · [architecture](./docs/architecture.md)
   - [command engine](./docs/command-engine.md) · [recipe](./docs/recipe.md) · [workflow](./docs/workflow.md)
   - [plugin system](./docs/plugin-system.md) · [ssh plugin](./docs/ssh-plugin.md) · [docker plugin](./docs/docker-plugin.md) · [ai plugin](./docs/ai-plugin.md) · [connection manager](./docs/connection-manager.md)
   - [permission](./docs/permission.md) · [observability](./docs/observability.md) · [ai](./docs/ai.md) · [ui](./docs/ui.md)
-  - [roadmap](./docs/roadmap.md) · 验收清单：[v0.1](./docs/v0.1-acceptance-checklist.md) · [v0.2](./docs/v0.2-acceptance-checklist.md) · [v0.3](./docs/v0.3-acceptance-checklist.md) · [v0.4](./docs/v0.4-acceptance-checklist.md) · [v0.4.1](./docs/v0.4.1-acceptance-checklist.md) · [v0.5.0](./docs/v0.5.0-acceptance-checklist.md) · [v0.5.1](./docs/v0.5.1-acceptance-checklist.md) · [v0.5.2](./docs/v0.5.2-acceptance-checklist.md) · [v0.5.3](./docs/v0.5.3-acceptance-checklist.md)
+  - [roadmap](./docs/roadmap.md) · 验收清单：[v0.1](./docs/v0.1-acceptance-checklist.md) · [v0.2](./docs/v0.2-acceptance-checklist.md) · [v0.3](./docs/v0.3-acceptance-checklist.md) · [v0.4](./docs/v0.4-acceptance-checklist.md) · [v0.4.1](./docs/v0.4.1-acceptance-checklist.md) · [v0.5.0](./docs/v0.5.0-acceptance-checklist.md) · [v0.5.1](./docs/v0.5.1-acceptance-checklist.md) · [v0.5.2](./docs/v0.5.2-acceptance-checklist.md) · [v0.5.3](./docs/v0.5.3-acceptance-checklist.md) · [v0.5.4](./docs/v0.5.4-acceptance-checklist.md)
 
 ## 快速开始
 
@@ -164,7 +164,7 @@ go test -count=1 -run TestDockerE2E ./...
 **自动化测试通过：76/76 | E2E 通过：23/23 | 手动验收：42/42**  
 详见 [v0.1 验收清单](./docs/v0.1-acceptance-checklist.md)
 
-### 最新交付（v0.5.3 已发布 · Release Smoke Patch）
+### 最新交付（v0.5.4 已发布 · 插件开发者体验 DX）
 
 - **v0.3.0**（[CHANGELOG](./CHANGELOG.md#v030---2026-07-10)）：Docker Plugin（unix / tcp / tcp+TLS · 13 条命令）+ Docker Dashboard + Workflow 五批增强（when / retry / on_failure / rollback / parallel / JSONL 历史）
 - **v0.3.1**（[CHANGELOG](./CHANGELOG.md#v031---2026-07-10)）：稳定性补丁 —— `plugins/docker` 覆盖率 **76.0%**；JSONL 轮转 + 保留策略 + 损坏行恢复 + 跨进程锁（`flock` / `LockFileEx`）；Windows `npipe://` 真实实现（go-winio）；TLS `docker.exec` raw-hijack；Docker E2E 接入常规 CI pipeline
@@ -174,6 +174,7 @@ go test -count=1 -run TestDockerE2E ./...
 - **v0.5.1**（[验收清单](./docs/v0.5.1-acceptance-checklist.md)）：插件平台化 · 生命周期 —— `install / update / uninstall / doctor` + 本地 Catalog + Desktop Marketplace + Release Catalog Workflow
 - **v0.5.2**（[验收清单](./docs/v0.5.2-acceptance-checklist.md)）：插件平台化 · 闭环 —— Schema 驱动配置 UI（CLI + Desktop）+ Secret sidecar + PVE 只读参考插件（11 条命令）+ 四插件兼容矩阵 CI
 - **v0.5.3**（[验收清单](./docs/v0.5.3-acceptance-checklist.md)）：Release Smoke Patch —— Windows install-smoke 的 catalog 平台过滤修复（`ConvertTo-LocalCatalog`）+ 离线 PowerShell 回归测试 + CI Windows 门禁；v0.5.2 的 patch，SDK / Manifest / Plugin Protocol 完全不变
+- **v0.5.4**（[验收清单](./docs/v0.5.4-acceptance-checklist.md)）：插件开发者体验（DX）—— `mow plugin dev [--watch]` 热重载 + 10 个 CLI 单测（无 `go` 工具链依赖）+ 9 个前端 PluginsPage 边缘用例（secret 保留 / catalog cache / install 失败）+ [插件作者指南](./docs/plugin-authoring.md) 10 节开发者旅程；不改 SDK / Manifest / Plugin Protocol
 
 ## Roadmap
 
@@ -189,6 +190,7 @@ go test -count=1 -run TestDockerE2E ./...
 | **v0.5.1** | 插件平台化 · 生命周期：install / upgrade / uninstall + 本地 Catalog + Desktop Marketplace | ✅ 已发布 |
 | **v0.5.2** | 插件平台化 · 闭环：Schema 驱动配置 UI + Secret sidecar + PVE 参考实现 | ✅ 已发布（tag `v0.5.2` 已推送；Windows install-smoke 由 v0.5.3 修复）|
 | **v0.5.3** | Release Smoke Patch：Windows catalog 平台过滤修复（v0.5.2 的 patch，不引入新特性） | ✅ 已发布 |
+| **v0.5.4** | 插件开发者体验（DX）：`mow plugin dev [--watch]` 热重载 + 10 个 CLI 单测 + 9 个前端边缘用例 + 插件作者指南 | ✅ 已发布 |
 | **v0.6** | Workflow 2.0：版本化、子工作流、审批、调度、通知、SQLite 历史 | 📋 计划中 |
 | **v0.7** | 基础设施扩展：PVE 正式版 + Kubernetes MVP | 📋 计划中 |
 | **v0.8** | 可观测与诊断中心 | 📋 计划中 |

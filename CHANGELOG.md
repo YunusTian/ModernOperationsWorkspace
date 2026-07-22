@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [v0.5.4] - 2026-07-22
+
 ### v0.5.4 开发者体验（DX）—— `plugin init` / `plugin lint` 测试 + `plugin dev --watch` 热重载 + Authoring Guide
 
 - **背景**：v0.5.0–v0.5.3 已把插件平台的运行时地基做完（Manifest / 生命周期 / Catalog / Schema-driven UI / PVE 参考实现），但外部开发者上手成本依旧偏高——[apps/cli/plugin_dev.go](./apps/cli/plugin_dev.go) 的 `plugin init` / `plugin lint` / `plugin package` 三条 DX 命令虽已落地，却**没有单测**，也**没有面向第三方作者的连贯文档**；日常迭代还得 `package → install --path → enable` 三步走。本轮补齐测试、文档，并新增 `mow plugin dev [--watch]` 把日常迭代压到一步。不改动 SDK / Manifest / Plugin Protocol。
@@ -417,7 +419,8 @@ v0.3 主线：**Docker Plugin + Docker Dashboard + Workflow 引擎增强**。完
 - **E2E 测试体系**：Fake SSH Server + Test Rig，覆盖 exec / recipe / SFTP / Shell / 连接池等 23 个用例
 - **16 篇设计文档**：架构总纲、各模块 RFC、验收清单、Roadmap 等
 
-[Unreleased]: https://github.com/mow/mow/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/mow/mow/compare/v0.5.4...HEAD
+[v0.5.4]: https://github.com/mow/mow/compare/v0.5.3...v0.5.4
 [v0.4.1]: https://github.com/mow/mow/compare/v0.4.0...v0.4.1
 [v0.4.0]: https://github.com/mow/mow/releases/tag/v0.4.0
 [v0.3.1]: https://github.com/mow/mow/releases/tag/v0.3.1
