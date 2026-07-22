@@ -253,63 +253,75 @@ v0.5.2 的 patch 版本，不引入新特性。Windows install-smoke 在 catalog
 
 把 Workflow 从 YAML 执行文件升级为可版本化、可审批、可调度、可复用的自动化资产。
 
-### 5.2 DSL 与执行能力
+**v0.6 拆分为四个独立可 tag 的子版本**，每个子版本都有独立的发布门槛，可独立回退：
 
-- 单 step `target` 覆盖
-- 子工作流调用
-- `parallel_limit`
-- 嵌套并行组
-- Workflow 参数 JSON Schema
-- Dry-run / Plan
-- 手工审批节点
-- 暂停、恢复和取消
-- 幂等键和重复执行保护
-- 更明确的失败、补偿和部分成功状态
+- **v0.6.0**：DSL 增量能力（`parallel_limit` / 嵌套 `parallel_group` / `step.target` / `step.workflow` 子调用 / `inputs.schema` / `idempotency_key`）—— 详见 [v0.6.0 详细设计 RFC](./v0.6.0-design.md)
+- **v0.6.1**：资产生命周期（Draft → Published → Deprecated → Archived）
+- **v0.6.2**：SQLite 结构化历史 + 搜索/统计
+- **v0.6.3**：Dry-run + 审批 + 定时/Webhook 触发 + 通知插件骨架
 
-### 5.3 资产生命周期
+### 5.2 v0.6.0：DSL 增量能力（无破坏性）
 
-```text
-Draft → Published → Deprecated → Archived
-```
+**范围**：只做 DSL 增量语法，不引入版本化、不动历史后端、不接触触发器。所有新字段均可选，v0.3 YAML 100% 通过。详细语义、错误码、Loader / Runner 改造点见 [v0.6.0 RFC](./v0.6.0-design.md)。
 
-- Workflow ID 与不可变版本号
-- 草稿编辑不影响已发布版本
+- `parallel_limit: N`：并发上限（组级最大值语义；`0` = 无上限；硬上限 512）
+- `parallel_group.branches[]`：单层嵌套并行组（batch 并发 + branch 内串行）
+- `step.target`：单 step 级 target 覆盖；`branches[].target` 作为 branch 默认
+- `step.workflow`：子工作流调用（相对路径 + 深度上限 5 + 循环检测 + 独立 History Record）
+- `inputs[].schema`：JSON Schema 输入（复用 v0.5.2 的 [core/plugin/settings/schema.go](../core/plugin/settings/schema.go) 编译器）；`inputs[].type` shorthand 保留但标 deprecated，v0.7 移除
+- `workflow.idempotency_key`：幂等键（v0.6.0 只做求值 + 写入 History 保留位；实际拒重逻辑到 v0.6.3 触发器）
+
+#### 5.2.1 v0.6.0 发布门槛
+
+- [ ] 所有 v0.3 workflow 单测 / E2E / examples 100% 通过（回归表见 [v0.6.0 RFC §4.2](./v0.6.0-design.md)）
+- [ ] `core/workflow` 覆盖率不低于 v0.3 的 92.5%
+- [ ] 新增 40+ 单测覆盖 parallel_limit / nested parallel_group / sub-workflow / step.target / inputs.schema / idempotency
+- [ ] E2E 新增 `TestWorkflow_SubWorkflowCascade_EndToEnd`
+- [ ] `docs/workflow.md` 新增 §9「v0.6.0 迁移指南」
+- [ ] 无破坏性 SDK / Plugin Protocol / Manifest 变更
+
+### 5.3 v0.6.1：资产生命周期（Draft → Published → Deprecated → Archived）
+
+**范围**：把 Workflow 从"文件"升级为"版本化资产"。**不做** SQLite 历史、不做审批。
+
+- Workflow ID + 不可变版本号
+- 草稿编辑与已发布版本隔离
 - 运行记录固定引用具体版本
-- 版本 diff、回退和迁移
+- 版本 diff / 回退（借鉴 v0.5.1 升级失败回退的原子 rename 思路）
 - 导入、导出和签名
 
-### 5.4 触发与通知
+### 5.4 v0.6.2：SQLite 结构化历史
 
-- 本地定时调度
-- Webhook 触发
-- 手工触发
-- 通知插件：Webhook 优先，Email / IM 后续
-- 失败、成功、等待审批事件
-- 重启后恢复调度状态
-
-### 5.5 历史存储
+**范围**：把 JSONL 历史后端升级为 SQLite，提供搜索/过滤/分页/统计。复用 v0.3 已抽象的 `Store` 接口，Runner / UI 侧不改。
 
 - SQLite 作为默认结构化历史后端
 - JSONL 保留为简单/兼容后端
 - 搜索、过滤、分页和统计
 - 运行详情、步骤结果和审计关联
-- 数据迁移、备份、压缩和保留策略
+- 数据迁移（JSONL → SQLite）、备份、压缩和保留策略
 
-### 5.6 AI 生成 Workflow 的安全流程
+### 5.5 v0.6.3：Dry-run + 审批 + 触发器
 
-```text
-AI 生成草稿 → Validate → Dry-run → 人工确认 → Publish → Run
-```
+**范围**：面向"人在回路"与"自动触发"的完整能力。落地本子版本后 v0.6 主题正式收官。
 
-AI 不得直接生成并发布可执行 Workflow。
+- Dry-run / Plan（为 v0.9 AI Plan 铺路）
+- 手工审批节点（Dangerous Command 复用同一模型）
+- 本地定时 + Webhook 触发（消费 v0.6.0 的 `idempotency_key`）
+- 通知插件骨架（Webhook 优先，Email / IM 后续）
+- 幂等键与重复执行保护实际生效（`reject` / `return-cached` 两种模式）
+- 更明确的失败、补偿和部分成功状态
+- AI 生成 Workflow 的安全流程：`AI 生成草稿 → Validate → Dry-run → 人工确认 → Publish → Run`
 
-### 5.7 v0.6 发布门槛
+### 5.6 v0.6 总体门槛（四子版本合计）
 
 - [ ] 已发布 Workflow 可稳定回放具体版本
 - [ ] 调度任务重启后不丢失、不重复执行
 - [ ] 审批和 Dangerous Command 均不能被 AI 或 API 绕过
 - [ ] SQLite 迁移和备份恢复通过故障测试
-- [ ] 子工作流具备深度和循环限制
+- [ ] 子工作流具备深度和循环限制（v0.6.0 已实现，5 层 + 循环拒绝）
+- [ ] AI 不得直接生成并发布可执行 Workflow
+
+
 
 ## 6. v0.7 — 基础设施扩展
 

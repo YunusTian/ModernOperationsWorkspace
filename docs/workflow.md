@@ -397,14 +397,19 @@ workflow:
 
 | 字段 / 特性 | 状态 | 说明 |
 | --- | --- | --- |
-| `notify: { channel, target }` | v0.4+ | 邮件 / IM / Webhook 通知 |
-| 每 Step 独立 `target` | v0.4+ | v0.3 仍全 Workflow 共用一个 target |
-| Workflow 版本化 / 迁移 | v0.4+ | 与 Marketplace 联动 |
-| `parallel_limit: N` 并发上限 | v0.4+ | 当前是"整组同时并发" |
-| 嵌套并行组（组中组） | v0.4+ | 当前 `parallel: true` 只支持单层 |
-| JSONL 历史文件锁 / 轮转 / 损坏行恢复策略 | v0.3.1 | 见 [roadmap.md § v0.3.1](./roadmap.md#v031--稳定性补丁--计划中) |
+| `notify: { channel, target }` | v0.6.3 | Webhook / Email / IM 通知，见 [v0.6.0 RFC §1.2](./v0.6.0-design.md) 非目标表 |
+| 每 Step 独立 `target` | **v0.6.0（Draft）** | 详见 [v0.6.0 RFC §3.3](./v0.6.0-design.md) |
+| 子工作流调用 `step.workflow` | **v0.6.0（Draft）** | 详见 [v0.6.0 RFC §3.4](./v0.6.0-design.md) |
+| Workflow 版本化 / 迁移 | v0.6.1 | Draft → Published → Deprecated → Archived |
+| `parallel_limit: N` 并发上限 | **v0.6.0（Draft）** | 详见 [v0.6.0 RFC §3.1](./v0.6.0-design.md) |
+| 嵌套并行组（`parallel_group.branches[]`） | **v0.6.0（Draft）** | 详见 [v0.6.0 RFC §3.2](./v0.6.0-design.md)；仅支持单层 |
+| `inputs[].schema` JSON Schema | **v0.6.0（Draft）** | 复用 v0.5.2 `settingsSchema` 编译器；`type` shorthand v0.7 移除 |
+| `workflow.idempotency_key` | **v0.6.0（Draft）** | v0.6.0 只落语法，实际拒重逻辑到 v0.6.3 |
+| Dry-run / 审批节点 / 定时 / Webhook 触发 | v0.6.3 | v0.6 主题收官 |
+| SQLite 结构化历史 | v0.6.2 | 复用 v0.3 抽象的 `Store` 接口，Runner / UI 不改 |
+| JSONL 历史文件锁 / 轮转 / 损坏行恢复策略 | v0.3.1（已发布） | 见 [roadmap.md § v0.3.1](./roadmap.md#v031--稳定性补丁-已发布) |
 
-> 严格模式（YAML 未知字段报错）不受影响：每一批合入前，写了新字段的 workflow 都会直接被拒绝，避免拼写歧义。
+> 严格模式（YAML 未知字段报错）不受影响：每一批合入前，写了新字段的 workflow 都会直接被拒绝，避免拼写歧义。v0.6.0 承诺所有新字段均可选，旧 YAML 一字不动继续跑；详见 [v0.6.0 RFC §4「兼容性影响分析」](./v0.6.0-design.md#4-兼容性影响分析)。
 
 ---
 
